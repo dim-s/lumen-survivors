@@ -33,6 +33,13 @@ class Player {
     if (m.moveSpeedMul) this.base.moveSpeed = p.moveSpeed * m.moveSpeedMul;
     if (m.damageMult) this.base.damageMult = m.damageMult;
     this._charLightBonus = m.lightBonus || 0;
+    // особые режимы света героев: 'decay' (Угасающий), 'mirror' (Зеркало)
+    this._lightMode = m.lightMode || null;
+    this._lightDecay = m.lightDecay || 0;     // px/сек угасания (decay)
+    this._killLight = m.killLight || 0;       // +свет за убийство (decay)
+    this._mirrorPer = m.mirrorPer || 0;       // свет за осколок (mirror)
+    this._mirrorStacks = 0;
+    this._lightFloor = 0; this._lightFloorT = 0;   // удержание света от ульты-вспышки
     // перманентные апгрейды из магазина (мета)
     this._revives = 0;
     if (typeof Meta !== 'undefined' && Meta.data && Meta.data.upgrades) {
@@ -51,7 +58,9 @@ class Player {
     this.regen = this.base.regen;
     this.damageMult = this.base.damageMult;
     this._bonusMaxHp = 0;
-    this.light = clamp(CONFIG.light.base + this._charLightBonus, CONFIG.light.min, CONFIG.light.max);
+    if (this._lightMode === 'decay') this.light = CONFIG.light.max;        // стартует ярко, тает
+    else if (this._lightMode === 'mirror') this.light = CONFIG.light.min;  // тьма, пока не нафармил
+    else this.light = clamp(CONFIG.light.base + this._charLightBonus, CONFIG.light.min, CONFIG.light.max);
   }
 
   addWeapon(key) {
@@ -111,12 +120,18 @@ function makeEnemy() {
   return { x:0,y:0, kx:0,ky:0, hp:0, maxHp:0, radius:0, speed:0, damage:0,
            color:'#fff', shape:'tri', xp:1, bigGem:false, score:1, isBoss:false,
            flash:0, dead:false, typeKey:'chaser', wob: RNG.next()*TAU, dmgCd:0, hitCd:0,
-           ranged:false, shotTimer:0, shotDmg:0, shotSpeed:0, shotCd:0, shotRange:0, shotRadius:6 };
+           ranged:false, shotTimer:0, shotDmg:0, shotSpeed:0, shotCd:0, shotRange:0, shotRadius:6,
+           // свет-механики: высасывание света, разделение, якорь тьмы, замедление фонарём
+           drainLight:0, drainRange:0, split:null, splitCount:0, isChild:false,
+           anchorOnDeath:false, anchorRadius:0, anchorLife:0, slowT:0, slowMul:1, bossKind:null, bossPhase:0,
+           suppressLight:false, suppressRange:0,
+           ring:false, ringCd:0, ringTimer:0, ringShots:0, ringSpeed:0, ringDmg:0, ringRadius:6 };
 }
 function makeProj() {
   return { x:0,y:0, vx:0,vy:0, dmg:0, radius:4, life:0, pierce:0, color:'#fff',
            kind:'bolt', knockback:0, dead:false, hitIds:null, angle:0, ownerTick:0,
-           orbIndex:0, src:null, trigger:0, hostile:false, target:null };
+           orbIndex:0, src:null, trigger:0, hostile:false, target:null,
+           slowMul:1, tick:0, tickTimer:0, maxLife:0, bounces:0, bounceGain:0 };
 }
 function makePickup() {
   return { x:0,y:0, vx:0,vy:0, type:'xp', value:1, color:'#fff', dead:false, magnet:false, born:0 };

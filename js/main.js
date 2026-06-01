@@ -4,16 +4,61 @@
 
 // --- мета-прогрессия: лучший забег, золото, перм-апгрейды ---
 const Meta = {
-  data: { best: 0, gold: 0, upgrades: {}, volume: 0.7 },
+  data: { best: 0, gold: 0, upgrades: {}, volume: 0.7,
+          maxDepth: 0, unlocks: {}, codex: {}, totalKills: 0 },
   load() {
     try {
       const s = localStorage.getItem('lumen_meta');
       if (s) this.data = Object.assign(this.data, JSON.parse(s));
     } catch (e) {}
     if (!this.data.upgrades) this.data.upgrades = {};
+    if (!this.data.unlocks)  this.data.unlocks = {};
+    if (!this.data.codex)    this.data.codex = {};
+    if (this.data.maxDepth == null)  this.data.maxDepth = 0;
+    if (this.data.totalKills == null) this.data.totalKills = 0;
   },
   save() { try { localStorage.setItem('lumen_meta', JSON.stringify(this.data)); } catch (e) {} },
-  recordBest(time) { if (time > this.data.best) { this.data.best = time; this.save(); } },
+  recordBest(time) { if (time > this.data.best) this.data.best = time; },
+
+  // Контент заперт, только если он есть в CONFIG.unlocks и веха ещё не взята.
+  // Всё, чего нет в списке разблокировок, доступно по умолчанию.
+  isUnlocked(key) {
+    const u = CONFIG.unlocks.find(x => x.key === key);
+    if (!u) return true;
+    return !!(this.data.unlocks && this.data.unlocks[key]);
+  },
+
+  // Подвести итог забега: рекорд, киллы, кодекс, открыть следующую глубину,
+  // проверить вехи разблокировок. Возвращает имена только что открытого.
+  recordRun(stats) {
+    if (!this.data.unlocks) this.data.unlocks = {};
+    if (!this.data.codex)   this.data.codex = {};
+    if (this.data.maxDepth == null)   this.data.maxDepth = 0;
+    if (this.data.totalKills == null) this.data.totalKills = 0;
+    this.recordBest(stats.time);
+    this.data.totalKills += stats.kills || 0;
+    if (stats.seen) for (const k of stats.seen) this.data.codex[k] = (this.data.codex[k] || 0) + 1;
+    if (stats.won) {
+      const next = (stats.depth || 0) + 1;
+      if (next > this.data.maxDepth && next <= CONFIG.depths.length) this.data.maxDepth = next;
+    }
+    const freshly = [];
+    for (const u of CONFIG.unlocks) {
+      if (this.data.unlocks[u.key]) continue;
+      const c = u.cond;
+      const ok =
+        (c.survive    != null && stats.time   >= c.survive) ||
+        (c.level      != null && stats.level  >= c.level) ||
+        (c.totalKills != null && this.data.totalKills >= c.totalKills) ||
+        (c.killBoss   === true && stats.killedBoss) ||
+        (c.win        === true && stats.won) ||
+        (c.depth      != null && (stats.depth || 0) >= c.depth);
+      if (ok) { this.data.unlocks[u.key] = true; freshly.push(u.key); }
+    }
+    this.save();
+    return freshly;
+  },
+
   upgLevel(key) { return this.data.upgrades[key] || 0; },
   upgCost(key) {
     const u = CONFIG.shop.find(s => s.key === key);
@@ -44,15 +89,32 @@ function resize() {
   Game.viewH = cssH;
 }
 
+// попадание курсора в прямоугольник (для кликабельных UI-зон)
+function hit(r) {
+  return r && Input.mouseX >= r.x && Input.mouseX <= r.x + r.w &&
+         Input.mouseY >= r.y && Input.mouseY <= r.y + r.h;
+}
+
 function handleInput() {
   const st = Game.state;
   if (st === 'menu') {
     if (Input.wasPressed('m')) Game.openShop();
+    else if (Input.clicked && hit(Game._menuShopRect)) Game.openShop();
     else if (Input.wasPressed(' ') || Input.clicked) Game.openCharSelect();
   } else if (st === 'charselect') {
     const n = Object.keys(CONFIG.characters).length;
     if (Input.wasPressed('arrowleft') || Input.wasPressed('a')) { Game.charIndex = (Game.charIndex + n - 1) % n; Audio2.uiMove(); }
     if (Input.wasPressed('arrowright') || Input.wasPressed('d')) { Game.charIndex = (Game.charIndex + 1) % n; Audio2.uiMove(); }
+    // выбор Глубины Тьмы (вверх/вниз), не выше открытой
+    const maxD = (typeof Meta !== 'undefined') ? Meta.data.maxDepth : 0;
+    if (Input.wasPressed('arrowup') || Input.wasPressed('w')) { Game.selectedDepth = clamp(Game.selectedDepth + 1, 0, maxD); Audio2.uiMove(); }
+    if (Input.wasPressed('arrowdown') || Input.wasPressed('s')) { Game.selectedDepth = clamp(Game.selectedDepth - 1, 0, maxD); Audio2.uiMove(); }
+    // клик по стрелкам выбора глубины
+    let depthClicked = false;
+    if (Input.clicked && Game._depthRects) {
+      if (hit(Game._depthRects.left)) { Game.selectedDepth = clamp(Game.selectedDepth - 1, 0, maxD); Audio2.uiMove(); depthClicked = true; }
+      else if (hit(Game._depthRects.right)) { Game.selectedDepth = clamp(Game.selectedDepth + 1, 0, maxD); Audio2.uiMove(); depthClicked = true; }
+    }
     if (Game._charRects) {
       for (let i = 0; i < Game._charRects.length; i++) {
         const r = Game._charRects[i];
@@ -62,7 +124,7 @@ function handleInput() {
       }
     }
     if (Input.wasPressed('enter') || Input.wasPressed(' ')) Game.confirmChar();
-    else if (Input.clicked && Game._charRects) {
+    else if (Input.clicked && !depthClicked && Game._charRects) {
       for (let i = 0; i < Game._charRects.length; i++) {
         const r = Game._charRects[i];
         if (Input.mouseX >= r.x && Input.mouseX <= r.x + r.w && Input.mouseY >= r.y && Input.mouseY <= r.y + r.h) {
@@ -78,6 +140,11 @@ function handleInput() {
     else if (Input.wasPressed(']')) Audio2.setVolume(Audio2.volume + 0.1);
     else if (Input.wasPressed('m')) Audio2.toggleMute();
     else if (Input.wasPressed('q')) Game.quitToMenu();
+    else if (Input.clicked) {
+      if (hit(Game._pauseRects && Game._pauseRects.resume)) Game.togglePause();
+      else if (hit(Game._pauseRects && Game._pauseRects.quit)) Game.quitToMenu();
+      else if (hit(Game._volRect)) Audio2.setVolume((Input.mouseX - Game._volRect.x) / Game._volRect.w);
+    }
   } else if (st === 'levelup') {
     const n = Game.offers.length;
     if (Input.wasPressed('arrowleft') || Input.wasPressed('a')) { Game.selIndex = (Game.selIndex + n - 1) % n; Audio2.uiMove(); }
@@ -103,8 +170,9 @@ function handleInput() {
       }
     }
   } else if (st === 'gameover' || st === 'win') {
-    if (Input.wasPressed(' ') || Input.clicked) Game.start();       // быстрый рестарт тем же героем
-    else if (Input.wasPressed('m')) Game.state = 'menu';            // в меню (магазин/смена героя)
+    if (Input.wasPressed('m')) Game.state = 'menu';                 // в меню (магазин/смена героя)
+    else if (Input.clicked && hit(Game._resultMenuRect)) Game.state = 'menu';
+    else if (Input.wasPressed(' ') || Input.clicked) Game.start();  // быстрый рестарт тем же героем
   } else if (st === 'shop') {
     const n = CONFIG.shop.length;
     if (Input.wasPressed('arrowup') || Input.wasPressed('w')) { Game.shopIndex = (Game.shopIndex + n - 1) % n; Audio2.uiMove(); }
@@ -117,7 +185,9 @@ function handleInput() {
         }
       }
     }
-    if (Input.wasPressed('enter') || Input.wasPressed(' ') || Input.clicked) {
+    if (Input.clicked && hit(Game._shopBackRect)) {
+      Game.state = 'menu';
+    } else if (Input.wasPressed('enter') || Input.wasPressed(' ') || Input.clicked) {
       if (Meta.buy(CONFIG.shop[Game.shopIndex].key)) Audio2.uiPick(); else Audio2.hit();
     }
     if (Input.wasPressed('escape') || Input.wasPressed('m')) Game.state = 'menu';

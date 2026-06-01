@@ -23,6 +23,18 @@ const Game = {
   charIndex: 0,
   shopIndex: 0,
   runGold: 0,
+  // ---- расширение v2: глубины, аномалии, зоны тьмы, события ----
+  selectedDepth: 0,         // выбранная глубина (0 = базовый забег)
+  depthIndex: 0,            // фактическая глубина забега
+  runMods: null,            // слитые модификаторы забега (глубина × аномалии)
+  darkZones: [],            // пятна тьмы от Якорей: {x,y,r,life,maxLife}
+  eventsSpawned: 0,         // сколько Развилок Тьмы уже было
+  runSeen: null,            // Set typeKey врагов, встреченных в забеге (кодекс)
+  killedBoss: false,        // убит ли хоть один босс (веха разблокировки)
+  newUnlocks: [],           // что открылось этим забегом (для итогового экрана)
+  // кликабельные UI-зоны (выставляются при рендере соответствующего экрана)
+  _menuShopRect: null, _depthRects: null, _pauseRects: null, _volRect: null,
+  _resultMenuRect: null, _shopBackRect: null,
 
   init() {
     this.enemies = new Pool(makeEnemy);
@@ -35,20 +47,76 @@ const Game = {
 
   start() {
     const char = CONFIG.characters[this.selectedChar] ? this.selectedChar : 'spark';
+    // глубина: не выше открытой
+    const maxD = (typeof Meta !== 'undefined') ? Meta.data.maxDepth : 0;
+    this.depthIndex = clamp(this.selectedDepth, 0, maxD);
+    this.computeRunMods();
     this.player.reset(char);
     this.player.addWeapon(CONFIG.characters[char].start);   // стартовое оружие персонажа
     this.player.recalc();
     this.enemies.clear(); this.projectiles.clear(); this.pickups.clear();
     this.particles.clear(); this.dmgNumbers.clear();
     this.effects.length = 0;
+    this.darkZones.length = 0;
     this.time = 0; this.score = 0;
     this.shake = 0; this.bannerTime = 0;
     this.pendingLevels = 0; this.offers = [];
     this.bossActive = false;
+    this.eventsSpawned = 0;
+    this.killedBoss = false;
+    this.runSeen = new Set();
+    this.newUnlocks = [];
+    this._runAwarded = false;
     Spawner.reset();
     this.state = 'playing';
     this.started = true;
+    // сбросить зажатие мыши с кнопки старта/рестарта — иначе игрок сразу едет к курсору
+    if (typeof Input !== 'undefined') Input.mouseDown = false;
     Audio2.ensure(); Audio2.resume(); Audio2.startMusic();
+  },
+
+  // ---- роллинг аномалий и слияние модификаторов забега (всё через RNG) ----
+  rollAnomalies() {
+    // 1 аномалия на базовой глубине, +1 за каждые две глубины (макс 3)
+    const n = clamp(1 + Math.floor(this.depthIndex / 2), 1, 3);
+    return sampleN(CONFIG.anomalies, n);
+  },
+
+  computeRunMods() {
+    const m = { depth: this.depthIndex, anomalies: [],
+                hp: 1, spd: 1, dmg: 1, light: 1, reward: 1,
+                recover: 1, hitLoss: 1, darkSpeed: 1, pickup: 1, xp: 1, weightMul: {} };
+    // глубина
+    if (this.depthIndex > 0) {
+      const d = CONFIG.depths[this.depthIndex - 1];
+      m.hp *= d.hp; m.spd *= d.spd; m.dmg *= d.dmg; m.light *= d.light; m.reward *= d.reward;
+    }
+    // аномалии
+    m.anomalies = this.rollAnomalies();
+    for (const a of m.anomalies) this._mergeAnomaly(m, a);
+    this.runMods = m;
+  },
+
+  // влить модификаторы одной аномалии в набор (используется и при роллинге, и Развилкой)
+  _mergeAnomaly(m, a) {
+    if (a.light)    m.light    *= a.light;
+    if (a.enemyHp)  m.hp       *= a.enemyHp;
+    if (a.enemySpd) m.spd      *= a.enemySpd;
+    if (a.enemyDmg) m.dmg      *= a.enemyDmg;
+    if (a.reward)   m.reward   *= a.reward;
+    if (a.recover)  m.recover  *= a.recover;
+    if (a.hitLoss)  m.hitLoss  *= a.hitLoss;
+    if (a.darkSpeed)m.darkSpeed*= a.darkSpeed;
+    if (a.pickup)   m.pickup   *= a.pickup;
+    if (a.xp)       m.xp       *= a.xp;
+    if (a.weightMul) for (const k in a.weightMul) m.weightMul[k] = (m.weightMul[k] || 1) * a.weightMul[k];
+  },
+
+  // множитель «дыхания» света День/Ночь — частота нарастает к финалу
+  dayNightMult() {
+    const c = CONFIG.cycle;
+    const p = lerp(c.period, c.periodEnd, clamp(this.time / CONFIG.runDuration, 0, 1));
+    return 1 + Math.sin(this.time / p * TAU) * c.swing;
   },
 
   // ----------------------------- UPDATE -----------------------------
@@ -66,6 +134,7 @@ const Game = {
     this.updateParticles(dt);
     this.updateDmgNumbers(dt);
     this.updateEffects(dt);
+    this.updateDarkZones(dt);
 
     // shake decay
     if (this.shake > 0) this.shake = Math.max(0, this.shake - CONFIG.feel.shakeDecay * dt);
@@ -74,8 +143,22 @@ const Game = {
     this.enemies.sweep(); this.projectiles.sweep(); this.pickups.sweep();
     this.particles.sweep(); this.dmgNumbers.sweep();
 
+    // Развилка Тьмы по таймеру (выбор без правильного ответа)
+    if (this.eventsSpawned < CONFIG.eventTimes.length &&
+        this.time >= CONFIG.eventTimes[this.eventsSpawned] && this.state === 'playing') {
+      this.openEvent();
+      return;
+    }
     // драфт по накопленным уровням
     if (this.pendingLevels > 0 && this.state === 'playing') this.openDraft();
+  },
+
+  updateDarkZones(dt) {
+    const z = this.darkZones;
+    for (let i = z.length - 1; i >= 0; i--) {
+      z[i].life -= dt;
+      if (z[i].life <= 0) z.splice(i, 1);
+    }
   },
 
   updatePlayer(dt) {
@@ -89,32 +172,82 @@ const Game = {
     if (p.regen > 0 && p.hp < p.maxHp) p.hp = Math.min(p.maxHp, p.hp + p.regen * dt);
     if (p.invuln > 0) p.invuln -= dt;
     if (p.flash > 0) p.flash -= dt;
-    // свет: цель растёт с уровнем; восстанавливается после проседаний от урона
+    // свет: цель растёт с уровнем; модифицируется глубиной, аномалиями, дыханием
+    // День/Ночь и пятнами тьмы; восстанавливается после проседаний от урона.
+    // У героев-режимов (Угасающий/Зеркало) — своя модель света.
     const L = CONFIG.light;
-    const target = clamp(L.base + (p.level - 1) * L.perLevel + (p._charLightBonus || 0), L.min, L.max);
-    if (p.light < target) p.light = Math.min(target, p.light + L.recover * dt);
-    else if (p.light > target) p.light = target;
+    const rm = this.runMods || { light: 1, recover: 1 };
+    const recoverMul = (this._lightRecoverMul != null) ? this._lightRecoverMul : 1;  // глушение Рассеивателем
+    // суммарное подавление пятнами тьмы (Якори), если игрок внутри
+    let supp = 1;
+    if (this.darkZones.length) {
+      for (const z of this.darkZones) if (dist2(p.x, p.y, z.x, z.y) <= z.r * z.r) supp *= 0.6;
+    }
+    if (p._lightMode === 'decay') {
+      // Угасающий: свет непрерывно тает; зоны тьмы ускоряют пропорционально; убийства подливают
+      let rate = p._lightDecay;
+      if (supp < 1) rate *= (2 - supp);
+      p.light = clamp(p.light - rate * dt, L.min, L.max);
+    } else {
+      // Зеркало: радиус из осколков-убийств; иначе — обычный рост с уровнем
+      const baseT = (p._lightMode === 'mirror')
+        ? (L.min + p._mirrorStacks * p._mirrorPer)
+        : (L.base + (p.level - 1) * L.perLevel + (p._charLightBonus || 0));
+      let target = clamp(baseT, L.min, L.max) * rm.light * this.dayNightMult() * supp;
+      target = clamp(target, L.min, L.max);
+      if (p.light < target) p.light = Math.min(target, p.light + L.recover * rm.recover * recoverMul * dt);
+      else if (p.light > target) p.light = target;
+    }
+    // всплеск света от ульты (Рассветная вспышка) держит радиус ~2с во всех режимах
+    if (p._lightFloorT > 0) { p._lightFloorT -= dt; if (p.light < p._lightFloor) p.light = p._lightFloor; }
     if (p.light < L.min) p.light = L.min;
     this.camera.x = p.x; this.camera.y = p.y;
   },
 
   updateEnemies(dt) {
     const p = this.player;
+    const rm = this.runMods || { darkSpeed: 1, hitLoss: 1 };
     const list = this.enemies.active;
+    let leechNear = false;
     for (let i = 0; i < list.length; i++) {
       const e = list[i];
       if (e.dead) continue;
       if (e.flash > 0) e.flash -= dt;
       if (e.hitCd > 0) e.hitCd -= dt;
       if (e.dmgCd > 0) e.dmgCd -= dt;
+      const d2p = dist2(e.x, e.y, p.x, p.y);
       // движение к игроку
       const a = angleTo(e.x, e.y, p.x, p.y);
       let sp = e.speed;
       // твист: вне света враги быстрее (рвутся из теней)
-      if (!e.isBoss && dist2(e.x, e.y, p.x, p.y) > p.light * p.light) sp *= CONFIG.light.darkSpeedMult;
-      const d2p = dist2(e.x, e.y, p.x, p.y);
+      if (!e.isBoss && d2p > p.light * p.light) sp *= CONFIG.light.darkSpeedMult * rm.darkSpeed;
       // дальник тормозит в дистанции боя, чтобы держать позицию и стрелять
       if (e.ranged && d2p < (e.shotRange * 0.75) * (e.shotRange * 0.75)) sp *= 0.25;
+      // замедление в свет-зоне фонаря
+      if (e.slowT > 0) { sp *= e.slowMul; e.slowT -= dt; }
+      // Пожиратель высасывает радиус света, пока близко (приоритет «убить первым»)
+      if (e.drainLight && d2p <= e.drainRange * e.drainRange) {
+        p.light = Math.max(CONFIG.light.min, p.light - e.drainLight * dt);
+      }
+      // Рассеиватель: глушит восстановление света, пока рядом
+      if (e.suppressLight && d2p <= e.suppressRange * e.suppressRange) leechNear = true;
+      // Нулевая Точка: пульсирует кольцами тьмы (радиальный залп по таймеру)
+      if (e.ring) {
+        e.ringTimer -= dt;
+        if (e.ringTimer <= 0) {
+          e.ringTimer += e.ringCd;
+          for (let k = 0; k < e.ringShots; k++) {
+            const ra = k / e.ringShots * TAU + this.time * 0.7;
+            this.projectiles.spawn((pr) => {
+              pr.x = e.x; pr.y = e.y;
+              pr.vx = Math.cos(ra) * e.ringSpeed; pr.vy = Math.sin(ra) * e.ringSpeed;
+              pr.kind = 'eshot'; pr.hostile = true; pr.dmg = e.ringDmg;
+              pr.color = '#c08bff'; pr.radius = e.ringRadius; pr.life = 4; pr.hitIds = null;
+            });
+          }
+          Audio2.nova();
+        }
+      }
       let mvx = Math.cos(a) * sp, mvy = Math.sin(a) * sp;
       e.x += (mvx + e.kx) * dt;
       e.y += (mvy + e.ky) * dt;
@@ -144,7 +277,8 @@ const Game = {
           p.hp -= e.damage;
           p.invuln = CONFIG.player.iframes;
           p.flash = 0.12;
-          p.light = Math.max(CONFIG.light.min, p.light - CONFIG.light.hitLoss); // тьма наступает
+          p.light = Math.max(CONFIG.light.min, p.light - CONFIG.light.hitLoss * rm.hitLoss); // тьма наступает
+          if (p._lightMode === 'mirror') p._mirrorStacks = Math.floor(p._mirrorStacks * 0.5);  // осколки бьются
           this.addShake(CONFIG.feel.shakeOnHit);
           Audio2.hurt();
           // оттолкнуть врага
@@ -155,6 +289,8 @@ const Game = {
         }
       }
     }
+    // Рассеиватель рядом → восстановление света заглушено (читается в updatePlayer)
+    this._lightRecoverMul = leechNear ? 0.3 : 1;
     this.separateEnemies();
   },
 
@@ -205,6 +341,8 @@ const Game = {
       const p = list[i];
       if (p.dead) continue;
       if (p.kind === 'mine') { this.updateMine(p, dt); continue; }
+      if (p.kind === 'lantern') { this.updateLantern(p, dt); continue; }
+      if (p.kind === 'ricochet') { this.updateRicochet(p, dt); continue; }
       if (p.hostile) { this.updateHostile(p, dt); continue; }
       if (p.kind === 'bolt') {
         // самонаведение
@@ -266,6 +404,57 @@ const Game = {
     }
   },
 
+  // Отражённый луч: летит, отскакивает от кромки света игрока (крепчая), бьёт врагов
+  updateRicochet(p, dt) {
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    p.life -= dt;
+    if (p.life <= 0) { p.dead = true; return; }
+    const pl = this.player;
+    const dx = p.x - pl.x, dy = p.y - pl.y;
+    const d = Math.hypot(dx, dy);
+    // отскок от кромки тьмы (границы света), пока есть отскоки
+    if (d > pl.light && p.bounces > 0 && d > 1) {
+      const nx = dx / d, ny = dy / d;
+      const dot = p.vx * nx + p.vy * ny;
+      // только если снаряд реально летит НАРУЖУ — иначе движение игрока даёт фантомный отскок
+      if (dot > 0) {
+        p.vx -= 2 * dot * nx; p.vy -= 2 * dot * ny;
+        p.x = pl.x + nx * (pl.light - 2); p.y = pl.y + ny * (pl.light - 2);
+        p.bounces--;
+        p.dmg *= (1 + p.bounceGain);
+        if (p.hitIds) p.hitIds.clear();   // после отскока можно снова бить тех же
+        Audio2.hit();
+      }
+    }
+    for (const e of this.enemies.active) {
+      if (e.dead) continue;
+      if (p.hitIds && p.hitIds.has(e)) continue;
+      const rr = p.radius + e.radius;
+      if (dist2(p.x, p.y, e.x, e.y) <= rr * rr) {
+        this.hitEnemy(e, p.dmg, p.knockback, p.x, p.y);
+        if (!p.hitIds) p.hitIds = new Set();
+        p.hitIds.add(e);
+      }
+    }
+  },
+
+  // фонарь (Пульс-фонарь): стоит на месте, замедляет и жжёт врагов в радиусе
+  updateLantern(p, dt) {
+    p.life -= dt;
+    if (p.life <= 0) { p.dead = true; return; }
+    p.tickTimer -= dt;
+    const doDmg = p.tickTimer <= 0;
+    if (doDmg) p.tickTimer += p.tick;
+    for (const e of this.enemies.active) {
+      if (e.dead) continue;
+      const rr = p.radius + e.radius;
+      if (dist2(p.x, p.y, e.x, e.y) <= rr * rr) {
+        e.slowT = 0.12; e.slowMul = p.slowMul;        // замедление (читается в updateEnemies)
+        if (doDmg && p.dmg > 0) this.hitEnemy(e, p.dmg, 0, p.x, p.y);
+      }
+    }
+  },
+
   // вражеский снаряд: летит, бьёт игрока
   updateHostile(p, dt) {
     p.x += p.vx * dt; p.y += p.vy * dt;
@@ -278,7 +467,8 @@ const Game = {
         pl.hp -= p.dmg;
         pl.invuln = CONFIG.player.iframes;
         pl.flash = 0.12;
-        pl.light = Math.max(CONFIG.light.min, pl.light - CONFIG.light.hitLoss);
+        pl.light = Math.max(CONFIG.light.min, pl.light - CONFIG.light.hitLoss * (this.runMods ? this.runMods.hitLoss : 1));
+        if (pl._lightMode === 'mirror') pl._mirrorStacks = Math.floor(pl._mirrorStacks * 0.5);  // осколки бьются
         this.addShake(CONFIG.feel.shakeOnHit);
         Audio2.hurt();
         if (pl.hp <= 0) { pl.hp = 0; this.gameOver(); }
@@ -290,8 +480,9 @@ const Game = {
   updatePickups(dt) {
     const p = this.player;
     const list = this.pickups.active;
-    const pr2 = p.pickupRadius * p.pickupRadius;
-    const aw = p.pickupRadius * 2.2;        // зона мягкого притяжения (шлейф)
+    const pickR = p.pickupRadius * (this.runMods ? this.runMods.pickup : 1);  // аномалия Морок сужает магнит
+    const pr2 = pickR * pickR;
+    const aw = pickR * 2.2;                  // зона мягкого притяжения (шлейф)
     const aw2 = aw * aw;
     for (let i = 0; i < list.length; i++) {
       const k = list[i];
@@ -321,7 +512,8 @@ const Game = {
   collect(k) {
     const p = this.player;
     if (k.type === 'gold') { p.gold += k.value; Audio2.pickup(); return; }
-    const leveled = p.gainXp(k.value);
+    const xpMul = this.runMods ? this.runMods.xp : 1;
+    const leveled = p.gainXp(xpMul !== 1 ? Math.max(1, Math.round(k.value * xpMul)) : k.value);
     if (leveled > 0) this.pendingLevels += leveled;
     // короткий пульс XP-бара (связь килл→осколок→XP читаема) — единый, рефрешим
     const pulse = this.effects.find(e => e.kind === 'xppulse');
@@ -384,12 +576,30 @@ const Game = {
   killEnemy(e) {
     if (e.dead) return;
     e.dead = true;
-    this.player.kills++;
+    const pl = this.player;
+    pl.kills++;
+    // герои: Угасающий черпает свет из убийств, Зеркало копит осколки
+    if (pl._lightMode === 'decay') pl.light = Math.min(CONFIG.light.max, pl.light + pl._killLight);
+    else if (pl._lightMode === 'mirror') pl._mirrorStacks++;
     this.score += e.score;
+    if (this.runSeen) this.runSeen.add(e.typeKey);
     this.spawnPickup(e.x, e.y, e.bigGem ? 'xpbig' : 'xp', e.bigGem ? CONFIG.xp.gemBigValue : e.xp);
     const n = e.isBoss ? CONFIG.feel.bossDeathParticles : CONFIG.feel.deathParticles;
     this.burst(e.x, e.y, e.color, n, e.isBoss ? 340 : 150);
+    // Дробитель распадается на осколки
+    if (e.split) {
+      const ph = Spawner.currentPhase(this.time);
+      for (let i = 0; i < e.splitCount; i++) {
+        const a = rand(0, TAU), r = rand(10, 26);
+        Spawner.spawnTypeAt(e.split, e.x + Math.cos(a) * r, e.y + Math.sin(a) * r, ph, true);
+      }
+    }
+    // Якорь роняет пятно тьмы — гасит рост света на участке
+    if (e.anchorOnDeath) {
+      this.darkZones.push({ x: e.x, y: e.y, r: e.anchorRadius, life: e.anchorLife, maxLife: e.anchorLife });
+    }
     if (e.isBoss) {
+      this.killedBoss = true;
       this.addShake(CONFIG.feel.shakeOnBossDeath);
       const bn = CONFIG.enemies[e.typeKey] ? CONFIG.enemies[e.typeKey].name.toUpperCase() : 'БОСС';
       this.banner(bn + ' ПОВЕРЖЕН', 2.5);
@@ -467,9 +677,64 @@ const Game = {
     this.pendingLevels--;
     this.offers = this.generateOffers();
     this.selIndex = 0;
+    this._draftIsEvent = false;
     this.state = 'levelup';
     this.dmgNumbers.clear();   // чтобы яркие числа не просвечивали сквозь дим
     Audio2.levelup();
+  },
+
+  // ---- Развилка Тьмы: выбор без правильного ответа (переиспользует UI драфта) ----
+  openEvent() {
+    this.eventsSpawned++;
+    this.offers = this.generateEventOffers();
+    this.selIndex = 0;
+    this._draftIsEvent = true;
+    this.state = 'levelup';
+    this.dmgNumbers.clear();
+    this.banner('РАЗВИЛКА ТЬМЫ', 1.6);
+    Audio2.levelup();
+  },
+
+  generateEventOffers() {
+    return sampleN(CONFIG.darkEvents, 3).map(d => ({ type: 'event', kind: d.kind, def: d }));
+  },
+
+  applyDarkEvent(kind) {
+    const p = this.player;
+    if (kind === 'eliteWave') {
+      const ph = Spawner.currentPhase(this.time);
+      const pool = ['tank', 'devourer', 'anchor', 'chaser'];
+      for (let i = 0; i < 12; i++) {
+        const pos = Spawner.edgePos();
+        Spawner.spawnTypeAt(pick(pool), pos.x, pos.y, ph, false);
+      }
+      for (let i = 0; i < 14; i++)
+        this.spawnPickup(p.x + rand(-60, 60), p.y + rand(-60, 60), 'gold', 5);
+      this.banner('ПРОРЫВ ТЕНЕЙ', 1.8);
+    } else if (kind === 'curse') {
+      // добавить аномалию, которой ещё нет; взамен — перманентный (на забег) +урон.
+      // Баф даётся только если аномалия реально добавлена (иначе сделки нет)
+      const have = new Set(this.runMods.anomalies.map(a => a.key));
+      const fresh = CONFIG.anomalies.filter(a => !have.has(a.key));
+      if (fresh.length) {
+        const a = pick(fresh);
+        this._mergeAnomaly(this.runMods, a);
+        this.runMods.anomalies.push(a);
+        this.banner('ТЬМА: ' + a.name.toUpperCase(), 2);
+        p.base.damageMult *= 1.15; p.recalc();
+      }
+    } else if (kind === 'respite') {
+      p.hp = Math.min(p.maxHp, p.hp + p.maxHp * 0.5);
+      p.light = CONFIG.light.max;
+      for (const e of this.enemies.active) {
+        if (!e.dead && !e.isBoss && dist2(e.x, e.y, p.x, p.y) < 260 * 260) this.killEnemy(e);
+      }
+      this.burst(p.x, p.y, CONFIG.colors.player, 40, 280);
+    } else if (kind === 'fortune') {
+      for (let i = 0; i < 22; i++)
+        this.spawnPickup(p.x + rand(-80, 80), p.y + rand(-80, 80), 'gold', 5);
+      p.hp = Math.min(p.maxHp, p.hp + p.maxHp * 0.15);
+    }
   },
 
   generateOffers() {
@@ -489,6 +754,8 @@ const Game = {
       const def = CONFIG.weapons[key];
       if (p.weapons.some(x => x.key === def.evolveInto)) continue;  // уже эволюционировало
       const w = p.weapons.find(x => x.key === key);
+      // запертое оружие не предлагаем, пока игрок его не открыл (если уже взято — качаем)
+      if (!w && typeof Meta !== 'undefined' && !Meta.isUnlocked(key)) continue;
       if (!w) cands.push({ type: 'weapon', key, isNew: true, resLvl: 1 });
       else if (w.level < 5) cands.push({ type: 'weapon', key, isNew: false, resLvl: w.level + 1 });
     }
@@ -511,9 +778,10 @@ const Game = {
     if (o.type === 'weapon') p.addWeapon(o.key);
     else if (o.type === 'passive') p.addPassive(o.key);
     else if (o.type === 'heal') p.hp = Math.min(p.maxHp, p.hp + p.maxHp * 0.4);
+    else if (o.type === 'event') this.applyDarkEvent(o.kind);
     else if (o.type === 'evolve') {
       const w = p.weapons.find(w => w.key === o.key);
-      if (w) { w.key = o.into; w.level = 1; w.timer = 0; w.orbAngle = 0; w._nodes = []; }
+      if (w) { w.key = o.into; w.level = 1; w.timer = 0; w.orbAngle = 0; w._nodes = []; w._beamTick = 0; w._beams = null; }
       this.banner('ЭВОЛЮЦИЯ — ' + CONFIG.evolutions[o.into].name, 2.4);
       this.addShake(8);
       Audio2.levelup();
@@ -537,7 +805,9 @@ const Game = {
   },
   confirmChar() {
     const keys = Object.keys(CONFIG.characters);
-    this.selectedChar = keys[clamp(this.charIndex, 0, keys.length - 1)];
+    const key = keys[clamp(this.charIndex, 0, keys.length - 1)];
+    if (typeof Meta !== 'undefined' && !Meta.isUnlocked(key)) { Audio2.hit(); return; }  // герой заперт
+    this.selectedChar = key;
     this.start();
   },
   openShop() {
@@ -551,13 +821,22 @@ const Game = {
     Audio2.stopMusic();
   },
 
-  // золото за забег + лучший результат в мету
+  // золото за забег + рекорд + вехи разблокировок (раз за забег)
   awardRun() {
-    const earned = this.player.gold + Math.floor(this.player.kills / 5) + Math.floor(this.score / 4);
+    if (this._runAwarded) return;
+    this._runAwarded = true;
+    const rew = this.runMods ? this.runMods.reward : 1;
+    const base = this.player.gold + Math.floor(this.player.kills / 5) + Math.floor(this.score / 4);
+    const earned = Math.round(base * rew);
     this.runGold = earned;
+    this.newUnlocks = [];
     if (typeof Meta !== 'undefined') {
       Meta.data.gold += earned;
-      Meta.recordBest(this.time);
+      this.newUnlocks = Meta.recordRun({
+        time: this.time, level: this.player.level, kills: this.player.kills,
+        killedBoss: this.killedBoss, won: this.state === 'win',
+        depth: this.depthIndex, seen: this.runSeen,
+      });
     }
   },
 

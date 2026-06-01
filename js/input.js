@@ -82,7 +82,7 @@ const Input = {
 
   _norm(k) { return k.toLowerCase(); },
 
-  // Вектор движения: сенсор (если активен) или WASD/стрелки
+  // Вектор движения: сенсор → мышь (зажата ЛКМ в игре) → WASD/стрелки
   moveVector() {
     if (this.touchActive) {
       const dx = this.curX - this.baseX, dy = this.curY - this.baseY;
@@ -90,6 +90,13 @@ const Input = {
       if (d < this.deadzone) return { x: 0, y: 0 };
       const mag = Math.min(1, d / this.maxRadius);
       return { x: (dx / d) * mag, y: (dy / d) * mag };
+    }
+    // десктоп: зажатая ЛКМ во время игры = движение к курсору (от игрока в центре экрана)
+    if (this.mouseDown && !this.isTouch && typeof Game !== 'undefined' && Game.state === 'playing') {
+      const dx = this.mouseX - Game.viewW / 2, dy = this.mouseY - Game.viewH / 2;
+      const d = Math.hypot(dx, dy);
+      if (d > 10) { const mag = Math.min(1, d / 110); return { x: (dx / d) * mag, y: (dy / d) * mag }; }
+      return { x: 0, y: 0 };
     }
     let x = 0, y = 0;
     if (this.keys['w'] || this.keys['arrowup']) y -= 1;

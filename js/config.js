@@ -16,7 +16,7 @@ const CONFIG = {
     gridBold:  'rgba(70, 110, 200, 0.16)',
     player:    '#ffce5e',     // тёплый огонёк-свет
     playerCore:'#fffdf0',
-    xp:        '#8effc2',     // искры света
+    xp:        '#ffdca0',     // тёплые мотыльки-очаги света
     xpBig:     '#ffd24a',
     gold:      '#ffd24a',
     hp:        '#ff4d6d',
@@ -43,6 +43,11 @@ const CONFIG = {
     glintRadius: 3,       // размер точки-глинта врага/осколка во тьме (читаемость)
     glintAlpha: 0.6,      // яркость глинта
     shotGlintAlpha: 0.8,  // яркость глинта вражеского снаряда (виднее — уклоняться)
+    // врагов во тьме НЕ видно — лишь редкие вспышки-молнии выхватывают их силуэты,
+    // а на кромке тлеет «пульс угрозы» (чувствуешь рой, но не видишь где)
+    flashPeriod: 4.0,     // период вспышки, сек
+    flashDur: 0.26,       // длительность вспышки, сек
+    threatRange: 200,     // на сколько за кромкой света считаем «угрозу рядом»
   },
 
   // ---- Игрок (базовые статы; модифицируются пассивками) ----
@@ -74,19 +79,80 @@ const CONFIG = {
      hpMult/spdMult/dmgMult — масштаб статов врага в этой фазе
      weights      — вероятностные веса по типам врага
      --------------------------------------------------------------- */
+  // Кривая вводит НОВЫЕ механики по одной за фазу (не стеком): мягкая кривая обучения.
+  // splitter@150 → spitter/ranged@240 → devourer/drain@300 → leech+anchor@375 → brute@460.
   phases: [
     { tStart: 0,   spawnInterval: 0.85, batch: 1, cap: 30,  hpMult: 1.0, spdMult: 1.0, dmgMult: 1.0,
       weights: { chaser: 1 } },
     { tStart: 60,  spawnInterval: 0.55, batch: 2, cap: 70,  hpMult: 1.25, spdMult: 1.05, dmgMult: 1.0,
       weights: { chaser: 3, swarm: 2 } },
     { tStart: 150, spawnInterval: 0.42, batch: 3, cap: 110, hpMult: 1.7, spdMult: 1.1, dmgMult: 1.1,
-      weights: { chaser: 3, swarm: 3, tank: 1 } },
-    { tStart: 240, spawnInterval: 0.32, batch: 4, cap: 160, hpMult: 2.4, spdMult: 1.15, dmgMult: 1.2,
-      weights: { chaser: 3, swarm: 4, tank: 2 } },
-    { tStart: 330, spawnInterval: 0.26, batch: 5, cap: 210, hpMult: 3.4, spdMult: 1.2, dmgMult: 1.3,
-      weights: { chaser: 2, swarm: 5, tank: 3, spitter: 2 } },
-    { tStart: 450, spawnInterval: 0.22, batch: 6, cap: 260, hpMult: 4.8, spdMult: 1.25, dmgMult: 1.5,
-      weights: { chaser: 2, swarm: 5, tank: 4, spitter: 2 } },
+      weights: { chaser: 3, swarm: 3, tank: 1, splitter: 1 } },
+    { tStart: 240, spawnInterval: 0.34, batch: 4, cap: 150, hpMult: 2.3, spdMult: 1.15, dmgMult: 1.2,
+      weights: { chaser: 3, swarm: 4, tank: 2, splitter: 2, spitter: 1 } },                       // дальник
+    { tStart: 300, spawnInterval: 0.30, batch: 4, cap: 185, hpMult: 2.9, spdMult: 1.18, dmgMult: 1.28,
+      weights: { chaser: 3, swarm: 4, tank: 2, splitter: 2, spitter: 2, devourer: 1 } },           // высасывание света
+    { tStart: 375, spawnInterval: 0.26, batch: 5, cap: 215, hpMult: 3.6, spdMult: 1.21, dmgMult: 1.36,
+      weights: { chaser: 2, swarm: 5, tank: 3, spitter: 2, splitter: 2, devourer: 1, leech: 1, anchor: 1 } }, // подавление + пятна
+    { tStart: 460, spawnInterval: 0.22, batch: 6, cap: 260, hpMult: 4.8, spdMult: 1.25, dmgMult: 1.5,
+      weights: { chaser: 2, swarm: 5, tank: 4, spitter: 3, splitter: 3, devourer: 2, anchor: 2, leech: 2, brute: 2 } },
+  ],
+
+  /* ---------------------------------------------------------------
+     ГЛУБИНЫ ТЬМЫ — ascension-лестница. depth 0 = базовый забег.
+     depth N>=1 берёт depths[N-1]: стек модификаторов поверх фаз.
+     Открывается победой на предыдущей глубине. Несущий мотор «ещё забег».
+     --------------------------------------------------------------- */
+  depths: [
+    { name: 'Глубина I',   hp: 1.30, spd: 1.04, dmg: 1.10, light: 0.94, reward: 1.35, desc: 'Тьма гуще. Свет слабее.' },
+    { name: 'Глубина II',  hp: 1.70, spd: 1.08, dmg: 1.20, light: 0.88, reward: 1.75, desc: 'Враги крепче, ночь ближе.' },
+    { name: 'Глубина III', hp: 2.20, spd: 1.12, dmg: 1.32, light: 0.82, reward: 2.20, desc: 'Свет едва держится.' },
+    { name: 'Глубина IV',  hp: 2.90, spd: 1.16, dmg: 1.46, light: 0.76, reward: 2.80, desc: 'Бездна смотрит в ответ.' },
+    { name: 'Глубина V',   hp: 3.80, spd: 1.20, dmg: 1.62, light: 0.70, reward: 3.60, desc: 'Только рассвет спасёт.' },
+    { name: 'Глубина VI',  hp: 5.00, spd: 1.25, dmg: 1.80, light: 0.64, reward: 4.60, desc: 'Конец света.' },
+  ],
+
+  /* ---------------------------------------------------------------
+     АНОМАЛИИ ТЬМЫ — модификаторы правил, роллятся на старте через RNG.
+     Делают каждый забег непохожим. Применяются множителями к системам.
+     Число активных растёт с глубиной (см. Game.rollAnomalies).
+     --------------------------------------------------------------- */
+  anomalies: [
+    { key: 'twilight',  name: 'Сумрак',        desc: 'Радиус света −22%',                    icon: '◑', light: 0.78 },
+    { key: 'longnight', name: 'Долгая ночь',   desc: 'Удар сильнее гасит свет',              icon: '☾', hitLoss: 1.7, recover: 0.8 },
+    { key: 'swarmtide', name: 'Прилив роя',    desc: 'Вдвое больше мелких тварей',           icon: '∴', weightMul: { swarm: 2.6, splitter: 1.8 } },
+    { key: 'frenzy',    name: 'Неистовство',   desc: 'Враги быстрее, но золота больше',      icon: '⚡', enemySpd: 1.16, reward: 1.4 },
+    { key: 'gloom',     name: 'Морок',         desc: 'Магнит слабее, зато опыт жирнее',      icon: '◍', pickup: 0.65, xp: 1.5 },
+    { key: 'embertide', name: 'Угли',          desc: 'Свет растёт быстрее, но тьма давит',   icon: '✸', recover: 1.6, darkSpeed: 1.22 },
+    { key: 'famine',    name: 'Голод',         desc: 'Тьма плодит крупных тварей',           icon: '◆', weightMul: { devourer: 3, anchor: 2.4 } },
+    { key: 'fragile',   name: 'Хрупкость',     desc: 'Враги бьют больнее, но мрут легче',    icon: '✕', enemyHp: 0.7, enemyDmg: 1.35, reward: 1.3 },
+  ],
+
+  // ---- Маятник День/Ночь: радиус света дышит, частота растёт к финалу ----
+  cycle: { period: 96, periodEnd: 46, swing: 0.13 },
+
+  /* ---------------------------------------------------------------
+     СОБЫТИЯ ТЬМЫ — развилка-выбор без правильного ответа (на таймере).
+     Переиспользует UI драфта. Каждый выбор — характерный риск/награда.
+     --------------------------------------------------------------- */
+  eventTimes: [205, 415],   // 3:25 и 6:55 — между боссами, не в их момент
+  darkEvents: [
+    { kind: 'eliteWave', icon: '⚔', color: '#ff5bd0', name: 'Прорыв теней',  desc: 'Волна крепких тварей разом — но щедрый дождь золота' },
+    { kind: 'curse',     icon: '☾', color: '#a64dff', name: 'Сгущение тьмы', desc: 'Новая аномалия до конца забега — взамен +15% урона навсегда' },
+    { kind: 'respite',   icon: '✚', color: '#7CFFB2', name: 'Затишье',       desc: 'Развеять ближнюю тьму, +50% HP, свет вспыхнёт' },
+    { kind: 'fortune',   icon: '◆', color: '#ffd24a', name: 'Россыпь',       desc: 'Богатый дождь золота и искра здоровья' },
+  ],
+
+  // ---- Разблокировки: контент за вехами. Питает «ещё забег» (мета-петля) ----
+  // cond: { survive, level, totalKills, killBoss, win, depth } — любое из условий.
+  unlocks: [
+    { key: 'beam',      kind: 'weapon', cond: { survive: 240 },      hint: 'Доживи до 4:00' },
+    { key: 'lantern',   kind: 'weapon', cond: { killBoss: true },    hint: 'Срази первого босса' },
+    { key: 'duskblade', kind: 'weapon', cond: { totalKills: 1500 },  hint: 'Убей 1500 тварей (всего)' },
+    { key: 'ricochet',  kind: 'weapon', cond: { level: 14 },         hint: 'Достигни 14 уровня в забеге' },
+    { key: 'dawnflash', kind: 'weapon', cond: { win: true },         hint: 'Переживи 10 минут' },
+    { key: 'umbra',     kind: 'char',   cond: { killBoss: true },    hint: 'Срази босса' },
+    { key: 'mirror',    kind: 'char',   cond: { depth: 1 },          hint: 'Войди в Глубину Тьмы' },
   ],
 
   // ---- Типы врагов ----
@@ -108,6 +174,40 @@ const CONFIG = {
       color: '#9b6bff', shape: 'diamond', xp: 2, score: 2,
       ranged: true, shotDmg: 6, shotSpeed: 235, shotCd: 2.8, shotRange: 430, shotRadius: 6,
     },
+    // Пожиратель: пока жив и близко — высасывает твой радиус света (приоритет «убить первым»)
+    devourer: {
+      name: 'Пожиратель', radius: 19, hp: 58, speed: 50, damage: 12,
+      color: '#a64dff', shape: 'hex', xp: 4, bigGem: true, score: 4,
+      drainLight: 46, drainRange: 230,
+    },
+    // Дробитель: при смерти распадается на 3 быстрых Осколка (дилемма «где убивать»)
+    splitter: {
+      name: 'Дробитель', radius: 16, hp: 34, speed: 66, damage: 10,
+      color: '#4dd0e1', shape: 'diamond', xp: 2, score: 2,
+      split: 'splitling', splitCount: 3,
+    },
+    // Осколок: дочерний враг Дробителя (не спавнится волнами, только при разделении)
+    splitling: {
+      name: 'Осколок', radius: 9, hp: 8, speed: 104, damage: 6,
+      color: '#80deea', shape: 'diamond', xp: 1, score: 1,
+    },
+    // Якорь: при смерти роняет пятно тьмы, гасящее рост света на участке (геометрия тьмы)
+    anchor: {
+      name: 'Якорь', radius: 20, hp: 82, speed: 30, damage: 14,
+      color: '#6a3dd6', shape: 'hex', xp: 5, bigGem: true, score: 5,
+      anchorOnDeath: true, anchorRadius: 150, anchorLife: 9,
+    },
+    // Рассеиватель: аура глушит ВОССТАНОВЛЕНИЕ света, пока рядом (тьма не отступает)
+    leech: {
+      name: 'Рассеиватель', radius: 15, hp: 40, speed: 58, damage: 8,
+      color: '#7ad1ff', shape: 'tri', xp: 3, score: 3,
+      suppressLight: true, suppressRange: 210,
+    },
+    // Громада: тяжёлый бугай поздних фаз/глубин — давит массой
+    brute: {
+      name: 'Громада', radius: 28, hp: 160, speed: 36, damage: 22,
+      color: '#c05bff', shape: 'hex', xp: 8, bigGem: true, score: 8,
+    },
     boss: {
       name: 'Жнец', radius: 48, hp: 2600, speed: 58, damage: 28,
       color: '#ff5bd0', shape: 'hex', xp: 40, bigGem: true, score: 50,
@@ -118,18 +218,44 @@ const CONFIG = {
       color: '#7a3cff', shape: 'hex', xp: 70, bigGem: true, score: 90,
       isBoss: true,
     },
+    // Владыка Затмения: аура постоянно высасывает твой свет, при смерти роняет якори
+    boss3: {
+      name: 'Владыка Затмения', radius: 54, hp: 9000, speed: 54, damage: 34,
+      color: '#a64dff', shape: 'hex', xp: 90, bigGem: true, score: 110,
+      isBoss: true, drainLight: 60, drainRange: 380,
+      anchorOnDeath: true, anchorRadius: 230, anchorLife: 7,
+    },
+    // Нулевая Точка: пульсирует кольцами тьмы — радиальные залпы по таймеру
+    boss4: {
+      name: 'Нулевая Точка', radius: 50, hp: 11000, speed: 30, damage: 30,
+      color: '#6a3dd6', shape: 'hex', xp: 110, bigGem: true, score: 140,
+      isBoss: true, ring: true, ringCd: 3.2, ringShots: 14, ringSpeed: 205, ringDmg: 14, ringRadius: 7,
+    },
   },
 
   // ---- Персонажи: разный старт и статы (выбор перед забегом) ----
+  // shape — форма-силуэт героя (в палитре света/огня), различает их визуально
   characters: {
     spark: {
       name: 'Искра', desc: 'Равновесие во всём. Старт: Импульс.',
-      icon: '✦', color: '#ffce5e', start: 'bolt', mods: {},
+      icon: '✦', color: '#ffce5e', shape: 'diamond', start: 'bolt', mods: {},
     },
     ember: {
       name: 'Уголёк', desc: 'Стекло-пушка: +25% урона, но меньше HP и света. Старт: Импульс.',
-      icon: '✺', color: '#ff7a5c', start: 'bolt',
+      icon: '✺', color: '#ff7a5c', shape: 'tri', start: 'bolt',
       mods: { damageMult: 1.25, moveSpeedMul: 1.05, maxHp: 72, lightBonus: -40 },
+    },
+    // Угасающий: горит ярко, но недолго. Свет тает со временем, каждый убитый — ещё миг света.
+    umbra: {
+      name: 'Угасающий', desc: 'Последняя вспышка: свет тает, но каждый убитый враг — ещё миг. Старт: Импульс.',
+      icon: '☄', color: '#ff9b4d', shape: 'hex', start: 'bolt',
+      mods: { lightMode: 'decay', lightDecay: 7, killLight: 4, damageMult: 1.12 },
+    },
+    // Зеркало: свет только из осколков убийств; урон бьёт по ним. Агрессия — единственный путь.
+    mirror: {
+      name: 'Зеркало', desc: 'Свет рождается из убийств; урон гасит осколки. Старт: Ореол.',
+      icon: '◇', color: '#ffe1a8', shape: 'circle', start: 'orbit',
+      mods: { lightMode: 'mirror', mirrorPer: 22, moveSpeedMul: 1.05 },
     },
   },
 
@@ -156,7 +282,7 @@ const CONFIG = {
     },
     orbit: {
       name: 'Ореол', desc: 'Щиты вращаются вокруг тебя',
-      icon: '◌', color: '#7CFFB2', kind: 'orbit',
+      icon: '◌', color: '#ffb35c', kind: 'orbit',
       cooldown: [0, 0, 0, 0, 0],
       dmg:      [6, 8, 11, 14, 18],
       count:    [2, 2, 3, 3, 4],
@@ -199,6 +325,57 @@ const CONFIG = {
       mineRadius: 72, mineLife: 6, mineTrigger: 46, knockback: 210,
       evolveWith: 'magnet', evolveInto: 'beacon',
     },
+    // Луч-маяк: постоянный жгущий луч в ближайшего; светит — оружие и фонарь разом
+    beam: {
+      name: 'Луч-маяк', desc: 'Постоянный луч жжёт по направлению взгляда',
+      icon: '⌖', color: '#fff0a0', kind: 'beam',
+      cooldown: [0, 0, 0, 0, 0],
+      dmg:      [5, 7, 9, 12, 16],         // урон за тик
+      count:    [1, 1, 1, 1, 2],           // число лучей
+      beamLen: [220, 250, 285, 320, 360], beamWide: 15, tick: 0.12, knockback: 28,
+      evolveWith: 'power', evolveInto: 'sunlance',
+    },
+    // Пульс-фонарь: ставит фонарь — свет-зона замедляет тварей и жжёт их
+    lantern: {
+      name: 'Пульс-фонарь', desc: 'Ставит фонарь: свет-зона тормозит тьму',
+      icon: '☼', color: '#ffd27a', kind: 'lantern',
+      cooldown: [3.2, 2.9, 2.6, 2.3, 2.0],
+      dmg:      [0, 0, 0, 0, 0],
+      count:    [1, 1, 1, 2, 2],           // фонарей за раз
+      lanternRadius: [92, 106, 120, 135, 152], lanternLife: [5, 5.5, 6, 6.5, 7],
+      slow: 0.52, tickDmg: [3, 4, 5, 7, 9], tick: 0.4,
+      evolveWith: 'vigor', evolveInto: 'lighthouse',
+    },
+    // Сумеречный клинок: чем меньше твой свет (ближе к тьме) — тем больнее бьёт
+    duskblade: {
+      name: 'Сумеречный клинок', desc: 'Нож из тьмы: бьёт тем сильнее, чем меньше твой свет',
+      icon: '†', color: '#c08bff', kind: 'bolt',
+      cooldown: [0.9, 0.8, 0.7, 0.6, 0.5],
+      dmg:      [16, 21, 27, 35, 46],
+      count:    [1, 1, 2, 2, 3],
+      speed: 560, pierce: 1, radius: 5, life: 0.9, knockback: 80, edgeBonus: 0.8,
+      evolveWith: 'speed', evolveInto: 'eclipseblade',
+    },
+    // Отражённый луч: снаряд отскакивает от кромки тьмы и с каждым отскоком крепчает
+    ricochet: {
+      name: 'Отражённый луч', desc: 'Снаряд отскакивает от кромки тьмы, набирая силу',
+      icon: '⟁', color: '#5fe0ff', kind: 'ricochet',
+      cooldown: [1.2, 1.05, 0.9, 0.78, 0.66],
+      dmg:      [12, 16, 20, 26, 33],
+      count:    [1, 1, 1, 2, 2],
+      speed: 430, radius: 5, life: 3.0, bounces: [2, 2, 3, 3, 4], bounceGain: 0.25, knockback: 70,
+      evolveWith: 'power', evolveInto: 'prism',
+    },
+    // Рассветная вспышка: ульта — взрыв света по экрану + радиус вспыхивает до макс.
+    dawnflash: {
+      name: 'Рассветная вспышка', desc: 'Ульта: взрыв света по экрану, радиус вспыхивает',
+      icon: '☀', color: '#fff0a0', kind: 'nova',
+      cooldown: [15, 14, 13, 12, 11],
+      dmg:      [40, 55, 72, 92, 120],
+      count:    [1, 1, 1, 1, 1],
+      novaRadius: [260, 290, 320, 350, 390], knockback: 300, lightBurst: true,
+      evolveWith: 'vigor', evolveInto: 'daybreak',
+    },
   },
 
   // ---- Эволюции: макс. оружие (ур.5) + нужная пассивка → супер-оружие.
@@ -233,6 +410,32 @@ const CONFIG = {
       name: 'Протуберанец', desc: 'Поле взрывных светочей',
       icon: '❉', color: '#ffe066', kind: 'mine', base: 'mine',
       cooldown: [0.7], dmg: [58], count: [3], mineRadius: 98, mineLife: 5, mineTrigger: 60, knockback: 260,
+    },
+    sunlance: {
+      name: 'Солнечное Копьё', desc: 'Широкий луч прожигает целый строй насквозь',
+      icon: '⟱', color: '#ffe066', kind: 'beam', base: 'beam',
+      cooldown: [0], dmg: [20], count: [2], beamLen: [460], beamWide: 24, tick: 0.09, knockback: 60,
+    },
+    lighthouse: {
+      name: 'Маяк', desc: 'Исполинский фонарь — свет-крепость держит ночь',
+      icon: '☀', color: '#ffe9a8', kind: 'lantern', base: 'lantern',
+      cooldown: [1.6], dmg: [0], count: [2], lanternRadius: [205], lanternLife: [8.5],
+      slow: 0.38, tickDmg: [15], tick: 0.3,
+    },
+    eclipseblade: {
+      name: 'Клинок Затмения', desc: 'Веер ножей тьмы прошивает строй насквозь',
+      icon: '✠', color: '#a64dff', kind: 'bolt', base: 'duskblade',
+      cooldown: [0.36], dmg: [40], count: [4], speed: 640, pierce: 3, radius: 6, life: 1.0, knockback: 110, edgeBonus: 1.0,
+    },
+    prism: {
+      name: 'Призма', desc: 'Луч дробится и рикошетит без устали',
+      icon: '◈', color: '#bfeaff', kind: 'ricochet', base: 'ricochet',
+      cooldown: [0.5], dmg: [30], count: [3], speed: 520, radius: 6, life: 3.5, bounces: [6], bounceGain: 0.3, knockback: 90,
+    },
+    daybreak: {
+      name: 'Рассвет', desc: 'Свет-взрыв во весь экран ослепляет тьму',
+      icon: '✺', color: '#ffe9a8', kind: 'nova', base: 'dawnflash',
+      cooldown: [7], dmg: [150], count: [1], novaRadius: [460], knockback: 480, lightBurst: true,
     },
   },
 

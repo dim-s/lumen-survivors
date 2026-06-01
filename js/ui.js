@@ -20,8 +20,10 @@ const UI = {
 
     this.drawGrid(ctx);
     this.drawWorld(ctx);
+    this.drawDarkZones(ctx);
     this.drawDarkness(ctx);
     this.drawDarkGlints(ctx);
+    this.drawCycleTint(ctx);
     this.drawVignette(ctx);
     this.drawHUD(ctx);
     this.drawBanner(ctx);
@@ -62,9 +64,14 @@ const UI = {
     ctx.globalCompositeOperation = 'lighter';
     for (const k of Game.pickups.active) {
       if (k.dead) continue;
-      const r = k.type === 'xpbig' ? 7 : k.type === 'gold' ? 6 : 4;
-      const dot = Render.glowDot(k.color, r);
-      Render.blit(ctx, dot, this.sx(k.x), this.sy(k.y), 0, 1, 0.95);
+      if (k.type === 'xp') {
+        // крошечный мотылёк света с лёгким мерцанием (фаза по born — разнобой)
+        const fl = 0.7 + 0.3 * Math.sin(Game.time * 9 + k.born * 7);
+        Render.blit(ctx, Render.glowDot(k.color, 3), this.sx(k.x), this.sy(k.y), 0, fl, 0.85 * fl + 0.1);
+      } else {
+        const r = k.type === 'xpbig' ? 7 : 6;
+        Render.blit(ctx, Render.glowDot(k.color, r), this.sx(k.x), this.sy(k.y), 0, 1, 0.95);
+      }
     }
     ctx.globalCompositeOperation = 'source-over';
 
@@ -128,6 +135,16 @@ const UI = {
         Render.blit(ctx, dot, X, Y, 0, 1 + Math.sin(Game.clock * 8) * 0.15, 0.95);
         ctx.strokeStyle = 'rgba(255,210,122,0.14)'; ctx.lineWidth = 1;
         ctx.beginPath(); ctx.arc(X, Y, p.trigger, 0, TAU); ctx.stroke();
+      } else if (p.kind === 'lantern') {
+        // свет-зона фонаря: мягкая заливка радиуса + пульсирующее ядро
+        const a = clamp(p.life / (p.maxLife || 1), 0, 1);
+        const grd = ctx.createRadialGradient(X, Y, 0, X, Y, p.radius);
+        grd.addColorStop(0, 'rgba(255,224,150,' + (0.20 * a).toFixed(3) + ')');
+        grd.addColorStop(0.6, 'rgba(255,206,94,' + (0.07 * a).toFixed(3) + ')');
+        grd.addColorStop(1, 'rgba(255,176,80,0)');
+        ctx.fillStyle = grd;
+        ctx.beginPath(); ctx.arc(X, Y, p.radius, 0, TAU); ctx.fill();
+        Render.blit(ctx, Render.glowDot(p.color, 6), X, Y, 0, 1 + Math.sin(Game.clock * 6) * 0.2, a);
       } else {
         Render.blit(ctx, Render.glowDot(p.color, p.radius), X, Y, 0, 1, 1);
       }
@@ -188,6 +205,32 @@ const UI = {
       }
     }
 
+    // ----- луч-маяк -----
+    for (const w of Game.player.weapons) {
+      if (!w._beams || weaponDef(w.key).kind !== 'beam') continue;
+      const def = weaponDef(w.key);
+      const X = this.sx(Game.player.x), Y = this.sy(Game.player.y);
+      ctx.globalCompositeOperation = 'lighter';
+      for (const b of w._beams) {
+        ctx.save();
+        ctx.translate(X, Y);
+        ctx.rotate(b.ang);
+        const grd = ctx.createLinearGradient(0, 0, b.len, 0);
+        grd.addColorStop(0, def.color);
+        grd.addColorStop(1, 'rgba(0,0,0,0)');
+        const hw = def.beamWide * 0.5;
+        ctx.globalAlpha = 0.45 + Math.sin(Game.clock * 18) * 0.1;
+        ctx.fillStyle = grd;
+        ctx.fillRect(0, -hw, b.len, hw * 2);
+        ctx.globalAlpha = 0.7;
+        ctx.fillStyle = '#fffdf0';
+        ctx.fillRect(0, -2, b.len, 4);
+        ctx.restore();
+      }
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
     // ----- игрок -----
     this.drawPlayer(ctx);
 
@@ -218,7 +261,9 @@ const UI = {
     const X = this.sx(p.x), Y = this.sy(p.y);
     let alpha = 1;
     if (p.invuln > 0) alpha = (Math.floor(Game.time * 20) % 2) ? 0.35 : 1;
-    const spr = Render.glowShape(CONFIG.colors.player, p.radius, 'diamond');
+    // силуэт героя: своя форма и тёплый цвет на каждого
+    const ch = CONFIG.characters[p.charKey] || CONFIG.characters.spark;
+    const spr = Render.glowShape(ch.color || CONFIG.colors.player, p.radius, ch.shape || 'diamond');
     const ang = Math.atan2(p.lastDir.y, p.lastDir.x) + Math.PI / 2;
     Render.blit(ctx, spr, X, Y, ang, 1, alpha);
     // яркое ядро
@@ -275,6 +320,22 @@ const UI = {
     ctx.font = 'bold 16px Consolas, monospace';
     ctx.fillStyle = CONFIG.colors.text;
     ctx.fillText('УР. ' + p.level, 12, 28);
+
+    // глубина + активные аномалии (слева под уровнем)
+    const rm = Game.runMods;
+    if (rm) {
+      let label = '';
+      if (rm.depth > 0 && CONFIG.depths[rm.depth - 1]) label += CONFIG.depths[rm.depth - 1].name;
+      if (rm.anomalies && rm.anomalies.length) {
+        const icons = rm.anomalies.map(a => a.icon).join(' ');
+        label += (label ? '  ' : '') + icons;
+      }
+      if (label) {
+        ctx.font = '12px Consolas, monospace';
+        ctx.fillStyle = CONFIG.colors.boss;
+        ctx.fillText(label, 12, 46);
+      }
+    }
 
     // таймер (центр)
     ctx.textAlign = 'center';
@@ -351,6 +412,35 @@ const UI = {
     ctx.globalAlpha = 1;
   },
 
+  // пятна тьмы от Якорей — пожирают свет на участке (геометрия тьмы)
+  drawDarkZones(ctx) {
+    for (const z of Game.darkZones) {
+      const X = this.sx(z.x), Y = this.sy(z.y);
+      if (X < -z.r || X > Game.viewW + z.r || Y < -z.r || Y > Game.viewH + z.r) continue;
+      const a = clamp(z.life / z.maxLife, 0, 1);
+      const grd = ctx.createRadialGradient(X, Y, 0, X, Y, z.r);
+      grd.addColorStop(0, 'rgba(2,2,8,' + (0.74 * a).toFixed(3) + ')');
+      grd.addColorStop(0.7, 'rgba(2,2,8,' + (0.42 * a).toFixed(3) + ')');
+      grd.addColorStop(1, 'rgba(2,2,8,0)');
+      ctx.fillStyle = grd;
+      ctx.beginPath(); ctx.arc(X, Y, z.r, 0, TAU); ctx.fill();
+      ctx.strokeStyle = 'rgba(120,60,220,' + (0.22 * a).toFixed(3) + ')';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(X, Y, z.r, 0, TAU); ctx.stroke();
+    }
+  },
+
+  // тинт цикла День/Ночь: холодный к ночи, тёплый ко дню (подсказка ритма)
+  drawCycleTint(ctx) {
+    if (!Game.dayNightMult) return;
+    const t = (Game.dayNightMult() - 1) / CONFIG.cycle.swing;   // -1..1
+    if (Math.abs(t) < 0.06) return;
+    const W = Game.viewW, H = Game.viewH;
+    if (t < 0) ctx.fillStyle = 'rgba(24,34,84,' + (0.11 * -t).toFixed(3) + ')';
+    else       ctx.fillStyle = 'rgba(255,176,80,' + (0.05 * t).toFixed(3) + ')';
+    ctx.fillRect(0, 0, W, H);
+  },
+
   // наступающая тьма: ясно в радиусе света игрока, темно за его краем
   drawDarkness(ctx) {
     const p = Game.player;
@@ -391,26 +481,58 @@ const UI = {
     ctx.globalAlpha = 1;
   },
 
-  // глинты поверх тьмы: враги — точки-угрозы, осколки — награда видны в темноте
+  // поверх тьмы: врагов во тьме НЕ видно — лишь вспышки-молнии и пульс угрозы;
+  // осколки и ВРАЖЕСКИЕ снаряды остаются видны (награда / уклонение)
   drawDarkGlints(ctx) {
     const L = CONFIG.light, W = Game.viewW, H = Game.viewH;
+    const p = Game.player;
+    // вспышка-молния: 0→1→0 за flashDur каждые flashPeriod (детерминировано от времени)
+    const phase = Game.time % L.flashPeriod;
+    const flashI = phase < L.flashDur ? Math.sin(phase / L.flashDur * Math.PI) : 0;
+    // пульс угрозы: сколько врагов рядом, но ЗА кромкой света (не видно где)
+    let darkThreat = 0;
+    const tr = L.threatRange;
     ctx.globalCompositeOperation = 'lighter';
     for (const e of Game.enemies.active) {
       if (e.dead) continue;
       const X = this.sx(e.x), Y = this.sy(e.y);
       if (X < -20 || X > W + 20 || Y < -20 || Y > H + 20) continue;
-      const r = e.isBoss ? L.glintRadius * 2.6 : (e.radius > 18 ? L.glintRadius * 1.5 : L.glintRadius);
-      Render.blit(ctx, Render.glowDot(e.color, r), X, Y, 0, 1, L.glintAlpha);
+      const d = dist(e.x, e.y, p.x, p.y);
+      const inDark = d > p.light;
+      if (inDark) { if (d < p.light + tr) darkThreat++; }
+      // боссы — всегда тусклый силуэт (фокусная, телеграфированная угроза); прочие — только во вспышке
+      if (e.isBoss) {
+        Render.blit(ctx, Render.glowDot(e.color, L.glintRadius * 2.4), X, Y, 0, 1, inDark ? 0.4 : L.glintAlpha);
+      } else if (inDark && flashI > 0.01) {
+        const r = e.radius > 18 ? L.glintRadius * 1.6 : L.glintRadius;
+        Render.blit(ctx, Render.glowDot(e.color, r), X, Y, 0, 1, L.glintAlpha * flashI);
+      }
     }
+    ctx.globalCompositeOperation = 'source-over';
+    // пульс угрозы на кромке тьмы — чувствуешь рой, но не видишь где
+    if (darkThreat > 0) {
+      const cx = W / 2 + Game.shakeX, cy = H / 2 + Game.shakeY;
+      const inten = Math.min(1, darkThreat / 16);
+      const puls = 0.5 + 0.5 * Math.sin(Game.time * 5);
+      const a = (0.05 + 0.12 * inten) * (0.5 + 0.5 * puls);
+      const r0 = p.light * 0.92, r1 = p.light * 1.5;
+      const grd = ctx.createRadialGradient(cx, cy, r0, cx, cy, r1);
+      grd.addColorStop(0, 'rgba(255,40,70,0)');
+      grd.addColorStop(0.5, 'rgba(255,40,70,' + a.toFixed(3) + ')');
+      grd.addColorStop(1, 'rgba(255,30,60,0)');
+      ctx.fillStyle = grd;
+      ctx.fillRect(0, 0, W, H);
+    }
+    ctx.globalCompositeOperation = 'lighter';
     for (const k of Game.pickups.active) {
       if (k.dead) continue;
       const X = this.sx(k.x), Y = this.sy(k.y);
       if (X < -20 || X > W + 20 || Y < -20 || Y > H + 20) continue;
-      Render.blit(ctx, Render.glowDot(k.color, k.type === 'xpbig' ? 5 : 4), X, Y, 0, 1, 0.85);
+      Render.blit(ctx, Render.glowDot(k.color, k.type === 'xpbig' ? 5 : k.type === 'gold' ? 4 : 3), X, Y, 0, 1, 0.85);
     }
     // снаряды видны в темноте (куда летят пули; вражеские — ярче, чтоб уклоняться)
     for (const pr of Game.projectiles.active) {
-      if (pr.dead || pr.kind === 'mine') continue;
+      if (pr.dead || pr.kind === 'mine' || pr.kind === 'lantern') continue;
       const X = this.sx(pr.x), Y = this.sy(pr.y);
       if (X < -20 || X > W + 20 || Y < -20 || Y > H + 20) continue;
       Render.blit(ctx, Render.glowDot(pr.color, L.glintRadius), X, Y, 0, 1, pr.hostile ? L.shotGlintAlpha : L.glintAlpha);
@@ -461,9 +583,13 @@ const UI = {
     ctx.font = '20px Consolas, monospace';
     const blink = (Math.floor(Game.clock * 2) % 2) === 0;
     if (blink) ctx.fillText('▶  ПРОБЕЛ  или  КЛИК  —  НАЧАТЬ', W / 2, H * 0.56);
-    ctx.fillStyle = CONFIG.colors.gold;
+    // кликабельная кнопка магазина (мышь)
+    const shopHover = Input.mouseX >= W / 2 - 150 && Input.mouseX <= W / 2 + 150 &&
+                      Input.mouseY >= H * 0.56 + 16 && Input.mouseY <= H * 0.56 + 44;
+    ctx.fillStyle = shopHover ? CONFIG.colors.player : CONFIG.colors.gold;
     ctx.font = '17px Consolas, monospace';
-    ctx.fillText('M  —  магазин света', W / 2, H * 0.56 + 34);
+    ctx.fillText('M  /  клик  —  магазин света', W / 2, H * 0.56 + 34);
+    Game._menuShopRect = { x: W / 2 - 150, y: H * 0.56 + 16, w: 300, h: 28 };
 
     ctx.fillStyle = CONFIG.colors.textDim;
     ctx.font = '15px Consolas, monospace';
@@ -477,6 +603,13 @@ const UI = {
       ctx.fillStyle = CONFIG.colors.gold;
       ctx.font = '14px Consolas, monospace';
       ctx.fillText('лучший забег: ' + fmtTime(Meta.data.best), W / 2, H * 0.86);
+      const codexN = Object.keys(Meta.data.codex || {}).length;
+      const totalTypes = Object.keys(CONFIG.enemies).length;
+      const parts = [];
+      if (Meta.data.maxDepth > 0) parts.push('глубина: ' + Meta.data.maxDepth + '/' + CONFIG.depths.length);
+      parts.push('кодекс: ' + codexN + '/' + totalTypes);
+      ctx.fillStyle = CONFIG.colors.textDim; ctx.font = '13px Consolas, monospace';
+      ctx.fillText(parts.join('     ·     '), W / 2, H * 0.86 + 22);
     }
   },
 
@@ -491,30 +624,74 @@ const UI = {
     ctx.fillText('← →  выбрать   ·   Enter / клик — в бой', W / 2, H * 0.2 + 28);
 
     const keys = Object.keys(CONFIG.characters);
-    const n = keys.length, cw = 250, gap = 32, ch = 270;
-    const totalW = n * cw + (n - 1) * gap, x0 = (W - totalW) / 2, y0 = H * 0.3;
+    const n = keys.length, gap = 24, ch = 264;
+    const cw = Math.min(238, (W - 80 - (n - 1) * gap) / n);   // адаптивно под число героев
+    const totalW = n * cw + (n - 1) * gap, x0 = (W - totalW) / 2, y0 = H * 0.28;
     Game._charRects = [];
     for (let i = 0; i < n; i++) {
       const c = CONFIG.characters[keys[i]];
+      const locked = (typeof Meta !== 'undefined') && !Meta.isUnlocked(keys[i]);
       const x = x0 + i * (cw + gap);
       const sel = i === Game.charIndex;
       ctx.fillStyle = sel ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.04)';
       ctx.fillRect(x, y0, cw, ch);
-      if (sel) {
+      if (sel && !locked) {
         ctx.globalCompositeOperation = 'lighter';
         Render.blit(ctx, Render.glowDot(c.color, 48), x + cw / 2, y0 + 84, 0, 1, 0.4);
         ctx.globalCompositeOperation = 'source-over';
       }
-      ctx.strokeStyle = sel ? c.color : 'rgba(255,255,255,0.15)';
+      ctx.strokeStyle = sel ? (locked ? CONFIG.colors.textDim : c.color) : 'rgba(255,255,255,0.15)';
       ctx.lineWidth = sel ? 3 : 1.5;
       ctx.strokeRect(x, y0, cw, ch);
-      ctx.fillStyle = c.color; ctx.font = '60px serif'; ctx.textAlign = 'center';
-      ctx.fillText(c.icon, x + cw / 2, y0 + 104);
-      ctx.fillStyle = CONFIG.colors.text; ctx.font = 'bold 24px Consolas, monospace';
-      ctx.fillText(c.name, x + cw / 2, y0 + 150);
-      ctx.fillStyle = CONFIG.colors.textDim; ctx.font = '13px Consolas, monospace';
-      this.wrapText(ctx, c.desc, x + cw / 2, y0 + 182, cw - 30, 18);
+      ctx.textAlign = 'center';
+      if (locked) {
+        // заперт: замок + условие открытия
+        ctx.globalAlpha = 0.5;
+        ctx.fillStyle = CONFIG.colors.textDim; ctx.font = '54px serif';
+        ctx.fillText('🔒', x + cw / 2, y0 + 100);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = CONFIG.colors.textDim; ctx.font = 'bold 22px Consolas, monospace';
+        ctx.fillText('???', x + cw / 2, y0 + 150);
+        const ud = CONFIG.unlocks.find(u => u.key === keys[i]);
+        ctx.fillStyle = CONFIG.colors.gold; ctx.font = '12px Consolas, monospace';
+        this.wrapText(ctx, ud ? ud.hint : 'заперт', x + cw / 2, y0 + 184, cw - 26, 17);
+      } else {
+        ctx.fillStyle = c.color; ctx.font = '58px serif';
+        ctx.fillText(c.icon, x + cw / 2, y0 + 102);
+        ctx.fillStyle = CONFIG.colors.text; ctx.font = 'bold 22px Consolas, monospace';
+        ctx.fillText(c.name, x + cw / 2, y0 + 148);
+        ctx.fillStyle = CONFIG.colors.textDim; ctx.font = '12px Consolas, monospace';
+        this.wrapText(ctx, c.desc, x + cw / 2, y0 + 178, cw - 26, 17);
+      }
       Game._charRects.push({ x, y: y0, w: cw, h: ch });
+    }
+
+    // выбор Глубины Тьмы (ascension) — открывается победами
+    const maxD = (typeof Meta !== 'undefined') ? Meta.data.maxDepth : 0;
+    const dy = y0 + ch + 42;
+    Game.selectedDepth = clamp(Game.selectedDepth, 0, maxD);
+    const dn = Game.selectedDepth === 0 ? 'Поверхность' : CONFIG.depths[Game.selectedDepth - 1].name;
+    ctx.textAlign = 'center';
+    Game._depthRects = null;
+    if (maxD > 0) {
+      ctx.fillStyle = CONFIG.colors.textDim; ctx.font = '13px Consolas, monospace';
+      ctx.fillText('ГЛУБИНА ТЬМЫ   ( ↑ ↓  или клик ◂ ▸ )', W / 2, dy - 18);
+      ctx.fillStyle = Game.selectedDepth ? CONFIG.colors.boss : CONFIG.colors.xp;
+      ctx.font = 'bold 22px Consolas, monospace';
+      ctx.fillText('◂  ' + dn + '  ▸', W / 2, dy + 8);
+      // кликабельные стрелки изменения глубины
+      Game._depthRects = {
+        left:  { x: W / 2 - 150, y: dy - 12, w: 70, h: 34 },
+        right: { x: W / 2 + 80,  y: dy - 12, w: 70, h: 34 },
+      };
+      if (Game.selectedDepth > 0) {
+        ctx.fillStyle = CONFIG.colors.textDim; ctx.font = '12px Consolas, monospace';
+        ctx.fillText(CONFIG.depths[Game.selectedDepth - 1].desc + '   ·   награда ×' +
+          CONFIG.depths[Game.selectedDepth - 1].reward.toFixed(2), W / 2, dy + 28);
+      }
+    } else {
+      ctx.fillStyle = CONFIG.colors.textDim; ctx.font = '12px Consolas, monospace';
+      ctx.fillText('переживи 10:00 — откроется Глубина Тьмы (больше угроз и наград)', W / 2, dy);
     }
   },
 
@@ -524,6 +701,16 @@ const UI = {
     ctx.fillStyle = CONFIG.colors.player;
     ctx.font = 'bold 40px Consolas, monospace';
     ctx.fillText('МАГАЗИН СВЕТА', W / 2, H * 0.12);
+    // кнопка «назад» (мышь)
+    const backHover = this._hover(24, 20, 110, 32);
+    ctx.textAlign = 'left';
+    ctx.strokeStyle = backHover ? CONFIG.colors.player : 'rgba(255,255,255,0.2)';
+    ctx.lineWidth = 1.5; ctx.strokeRect(24, 20, 110, 32);
+    ctx.fillStyle = backHover ? CONFIG.colors.player : CONFIG.colors.text;
+    ctx.font = '15px Consolas, monospace';
+    ctx.fillText('← НАЗАД', 40, 41);
+    Game._shopBackRect = { x: 24, y: 20, w: 110, h: 32 };
+    ctx.textAlign = 'center';
     ctx.fillStyle = CONFIG.colors.gold;
     ctx.font = 'bold 22px Consolas, monospace';
     ctx.fillText('◆ ' + (typeof Meta !== 'undefined' ? Meta.data.gold : 0), W / 2, H * 0.12 + 34);
@@ -572,12 +759,14 @@ const UI = {
     const W = Game.viewW, H = Game.viewH;
     this.dim(ctx, 0.72);
     ctx.textAlign = 'center';
-    ctx.fillStyle = CONFIG.colors.gold;
+    const isEv = Game._draftIsEvent;
+    ctx.fillStyle = isEv ? CONFIG.colors.boss : CONFIG.colors.gold;
     ctx.font = 'bold 30px Consolas, monospace';
-    ctx.fillText('УРОВЕНЬ ' + Game.player.level, W / 2, H * 0.2);
+    ctx.fillText(isEv ? 'РАЗВИЛКА ТЬМЫ' : 'УРОВЕНЬ ' + Game.player.level, W / 2, H * 0.2);
     ctx.fillStyle = CONFIG.colors.textDim;
     ctx.font = '15px Consolas, monospace';
-    ctx.fillText('выбери улучшение  ·  1 / 2 / 3  или  клик', W / 2, H * 0.2 + 28);
+    ctx.fillText(isEv ? 'выбери путь  ·  без правильного ответа  ·  1 / 2 / 3'
+                      : 'выбери улучшение  ·  1 / 2 / 3  или  клик', W / 2, H * 0.2 + 28);
 
     const n = Game.offers.length;
     const cw = 200, gap = 26, ch = 248;
@@ -594,6 +783,11 @@ const UI = {
   },
 
   offerDisplay(o) {
+    if (o.type === 'event') {
+      const d = o.def;
+      return { icon: d.icon, color: d.color, name: d.name, kind: 'РАЗВИЛКА',
+               desc: d.desc, lvl: 0, isNew: false };
+    }
     if (o.type === 'evolve') {
       const d = CONFIG.evolutions[o.into];
       return { icon: d.icon, color: d.color, name: d.name, kind: '★ ЭВОЛЮЦИЯ ★',
@@ -602,12 +796,12 @@ const UI = {
     if (o.type === 'weapon') {
       const d = CONFIG.weapons[o.key];
       return { icon: d.icon, color: d.color, name: d.name, kind: 'ОРУЖИЕ',
-               desc: o.isNew ? d.desc : 'Усиление до ур. ' + o.resLvl, lvl: o.resLvl, isNew: o.isNew };
+               desc: o.isNew ? d.desc : 'Ур. ' + (o.resLvl - 1) + ' → ' + o.resLvl, lvl: o.resLvl, isNew: o.isNew };
     }
     if (o.type === 'passive') {
       const d = CONFIG.passives[o.key];
       return { icon: d.icon, color: d.color, name: d.name, kind: 'ПАССИВ',
-               desc: o.isNew ? d.desc : 'Усиление до ур. ' + o.resLvl, lvl: o.resLvl, isNew: o.isNew };
+               desc: o.isNew ? d.desc : 'Ур. ' + (o.resLvl - 1) + ' → ' + o.resLvl, lvl: o.resLvl, isNew: o.isNew };
     }
     return { icon: '✚', color: CONFIG.colors.xp, name: 'Лечение', kind: 'БОНУС',
              desc: 'Восстановить 40% HP', lvl: 0, isNew: false };
@@ -696,17 +890,37 @@ const UI = {
       for (const key of pk) { const def = CONFIG.passives[key]; this.drawSlot(ctx, sx2, H * 0.46, def.icon, def.color, p.passives[key]); sx2 += 30; }
     } else { ctx.fillStyle = CONFIG.colors.textDim; ctx.font = '13px Consolas, monospace'; ctx.fillText('—', W / 2, H * 0.46 + 16); }
 
-    // громкость
+    // громкость (полоса кликабельна — клик задаёт уровень)
     const bw = 160, bx = W / 2 - bw / 2, by = H * 0.6;
     ctx.fillStyle = CONFIG.colors.textDim; ctx.font = '13px Consolas, monospace';
     ctx.fillText('громкость', W / 2, by - 12);
     ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.fillRect(bx, by, bw, 8);
     ctx.fillStyle = CONFIG.colors.player; ctx.fillRect(bx, by, bw * Audio2.volume, 8);
+    Game._volRect = { x: bx, y: by - 8, w: bw, h: 24 };
     ctx.fillStyle = CONFIG.colors.textDim; ctx.font = '12px Consolas, monospace';
     ctx.fillText('[  −    +  ]   ·   M — без звука', W / 2, by + 28);
 
-    ctx.fillStyle = CONFIG.colors.text; ctx.font = '16px Consolas, monospace';
-    ctx.fillText('ESC / P — продолжить          Q — выйти в меню', W / 2, H * 0.74);
+    // кликабельные кнопки продолжить / в меню
+    const btnY = H * 0.74, bh = 30;
+    const contW = 220, quitW = 180;
+    const contX = W / 2 - contW - 12, quitX = W / 2 + 12;
+    const contHover = this._hover(contX, btnY - bh / 2, contW, bh);
+    const quitHover = this._hover(quitX, btnY - bh / 2, quitW, bh);
+    ctx.lineWidth = 1.5; ctx.font = '16px Consolas, monospace';
+    ctx.strokeStyle = contHover ? CONFIG.colors.player : 'rgba(255,255,255,0.2)';
+    ctx.strokeRect(contX, btnY - bh / 2, contW, bh);
+    ctx.fillStyle = contHover ? CONFIG.colors.player : CONFIG.colors.text;
+    ctx.fillText('▶ ПРОДОЛЖИТЬ (ESC)', contX + contW / 2, btnY + 5);
+    ctx.strokeStyle = quitHover ? CONFIG.colors.danger : 'rgba(255,255,255,0.2)';
+    ctx.strokeRect(quitX, btnY - bh / 2, quitW, bh);
+    ctx.fillStyle = quitHover ? CONFIG.colors.danger : CONFIG.colors.text;
+    ctx.fillText('В МЕНЮ (Q)', quitX + quitW / 2, btnY + 5);
+    Game._pauseRects = { resume: { x: contX, y: btnY - bh / 2, w: contW, h: bh },
+                         quit:   { x: quitX, y: btnY - bh / 2, w: quitW, h: bh } };
+  },
+
+  _hover(x, y, w, h) {
+    return Input.mouseX >= x && Input.mouseX <= x + w && Input.mouseY >= y && Input.mouseY <= y + h;
   },
 
   drawGameOver(ctx) {
@@ -716,11 +930,13 @@ const UI = {
 
   drawWin(ctx) {
     this.dim(ctx, 0.74);
-    this.drawResults(ctx, 'ТЫ ВЫЖИЛ!', CONFIG.colors.xp);
+    const finale = Game.depthIndex >= CONFIG.depths.length;   // покорено самое дно
+    this.drawResults(ctx, finale ? 'ДНО ТЬМЫ ПОКОРЕНО' : 'ТЫ ВЫЖИЛ!', finale ? CONFIG.colors.gold : CONFIG.colors.xp);
     ctx.textAlign = 'center';
     ctx.fillStyle = CONFIG.colors.player;
     ctx.font = 'italic 18px Consolas, monospace';
-    ctx.fillText('Свет одолел тьму. Стал рассветом.', Game.viewW / 2, Game.viewH * 0.28 + 34);
+    ctx.fillText(finale ? '★ Тьмы больше нет. Ты — вечный Рассвет. ★'
+                        : 'Свет одолел тьму. Стал рассветом.', Game.viewW / 2, Game.viewH * 0.28 + 34);
   },
 
   drawResults(ctx, title, color) {
@@ -746,13 +962,30 @@ const UI = {
       ctx.fillText('' + v, W / 2 + 14, y);
       y += 32;
     }
+    // разблокировки этого забега
+    if (Game.newUnlocks && Game.newUnlocks.length) {
+      const names = Game.newUnlocks.map(k => {
+        const wd = CONFIG.weapons[k] || CONFIG.evolutions[k];
+        const ch = CONFIG.characters[k];
+        return wd ? wd.name : (ch ? ch.name : k);
+      }).join(', ');
+      ctx.fillStyle = CONFIG.colors.xp; ctx.font = 'bold 16px Consolas, monospace';
+      ctx.fillText('✦ ОТКРЫТО: ' + names, W / 2, y + 6);
+      y += 30;
+    }
+
     ctx.textAlign = 'center';
-    ctx.fillStyle = CONFIG.colors.text;
+    // кнопка рестарта (клик где угодно тоже работает)
+    const rsHover = this._hover(W / 2 - 170, y + 6, 340, 28);
+    ctx.fillStyle = rsHover ? CONFIG.colors.player : CONFIG.colors.text;
     ctx.font = '20px Consolas, monospace';
     const blink = (Math.floor(Game.clock * 2) % 2) === 0;
-    if (blink) ctx.fillText('▶  ПРОБЕЛ  —  ЕЩЁ ЗАБЕГ', W / 2, y + 24);
-    ctx.fillStyle = CONFIG.colors.textDim;
+    if (blink || rsHover) ctx.fillText('▶  ПРОБЕЛ / КЛИК  —  ЕЩЁ ЗАБЕГ', W / 2, y + 24);
+    // кликабельная кнопка меню
+    const mHover = this._hover(W / 2 - 150, y + 38, 300, 26);
+    ctx.fillStyle = mHover ? CONFIG.colors.gold : CONFIG.colors.textDim;
     ctx.font = '15px Consolas, monospace';
-    ctx.fillText('M  —  меню и магазин', W / 2, y + 52);
+    ctx.fillText('M  /  клик  —  меню и магазин', W / 2, y + 52);
+    Game._resultMenuRect = { x: W / 2 - 150, y: y + 38, w: 300, h: 26 };
   },
 };
