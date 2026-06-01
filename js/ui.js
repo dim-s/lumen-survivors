@@ -408,6 +408,13 @@ const UI = {
       if (X < -20 || X > W + 20 || Y < -20 || Y > H + 20) continue;
       Render.blit(ctx, Render.glowDot(k.color, k.type === 'xpbig' ? 5 : 4), X, Y, 0, 1, 0.85);
     }
+    // снаряды видны в темноте (куда летят пули; вражеские — ярче, чтоб уклоняться)
+    for (const pr of Game.projectiles.active) {
+      if (pr.dead || pr.kind === 'mine') continue;
+      const X = this.sx(pr.x), Y = this.sy(pr.y);
+      if (X < -20 || X > W + 20 || Y < -20 || Y > H + 20) continue;
+      Render.blit(ctx, Render.glowDot(pr.color, L.glintRadius), X, Y, 0, 1, pr.hostile ? L.shotGlintAlpha : L.glintAlpha);
+    }
     ctx.globalCompositeOperation = 'source-over';
   },
 
