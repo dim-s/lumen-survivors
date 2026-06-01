@@ -323,6 +323,10 @@ const Game = {
     if (k.type === 'gold') { p.gold += k.value; Audio2.pickup(); return; }
     const leveled = p.gainXp(k.value);
     if (leveled > 0) this.pendingLevels += leveled;
+    // короткий пульс XP-бара (связь килл→осколок→XP читаема) — единый, рефрешим
+    const pulse = this.effects.find(e => e.kind === 'xppulse');
+    if (pulse) pulse.life = pulse.maxLife;
+    else this.effects.push({ kind: 'xppulse', life: 0.3, maxLife: 0.3 });
     Audio2.pickup();
   },
 

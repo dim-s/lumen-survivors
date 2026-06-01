@@ -9,6 +9,7 @@ const Render = {
 
   // Глоу-точка (радиальный градиент) — для частиц, снарядов, осколков
   glowDot(color, radius) {
+    radius = Math.max(1, Math.round(radius));   // квантование: кэш не растёт от float-радиусов
     const key = 'dot|' + color + '|' + radius;
     let c = this.spriteCache.get(key);
     if (c) return c;
@@ -33,6 +34,7 @@ const Render = {
 
   // Неоновая фигура с обводкой и свечением (враги, игрок)
   glowShape(color, radius, shape) {
+    radius = Math.max(1, Math.round(radius));   // квантование радиуса (см. glowDot)
     const key = 'shape|' + color + '|' + radius + '|' + shape;
     let c = this.spriteCache.get(key);
     if (c) return c;

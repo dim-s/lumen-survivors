@@ -21,6 +21,7 @@ const UI = {
     this.drawGrid(ctx);
     this.drawWorld(ctx);
     this.drawDarkness(ctx);
+    this.drawDarkGlints(ctx);
     this.drawVignette(ctx);
     this.drawHUD(ctx);
     this.drawBanner(ctx);
@@ -255,10 +256,19 @@ const UI = {
     const W = Game.viewW, H = Game.viewH, p = Game.player;
     // XP-бар сверху во всю ширину
     const xpFrac = clamp(p.xp / p.xpNext, 0, 1);
-    ctx.fillStyle = 'rgba(94,242,255,0.10)';
+    ctx.fillStyle = 'rgba(255,206,94,0.10)';
     ctx.fillRect(0, 0, W, 7);
     ctx.fillStyle = CONFIG.colors.xpbar;
     ctx.fillRect(0, 0, W * xpFrac, 7);
+    // пульс при подборе искры
+    const xpPulse = Game.effects.find(e => e.kind === 'xppulse');
+    if (xpPulse) {
+      const a = clamp(xpPulse.life / xpPulse.maxLife, 0, 1);
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = 'rgba(255,255,255,' + (0.55 * a).toFixed(3) + ')';
+      ctx.fillRect(0, 0, W * xpFrac, 7);
+      ctx.globalCompositeOperation = 'source-over';
+    }
 
     // уровень (слева)
     ctx.textAlign = 'left';
@@ -379,6 +389,26 @@ const UI = {
     ctx.fillStyle = CONFIG.colors.player;
     ctx.beginPath(); ctx.arc(bx + dx, by + dy, 24, 0, TAU); ctx.fill();
     ctx.globalAlpha = 1;
+  },
+
+  // глинты поверх тьмы: враги — точки-угрозы, осколки — награда видны в темноте
+  drawDarkGlints(ctx) {
+    const L = CONFIG.light, W = Game.viewW, H = Game.viewH;
+    ctx.globalCompositeOperation = 'lighter';
+    for (const e of Game.enemies.active) {
+      if (e.dead) continue;
+      const X = this.sx(e.x), Y = this.sy(e.y);
+      if (X < -20 || X > W + 20 || Y < -20 || Y > H + 20) continue;
+      const r = e.isBoss ? L.glintRadius * 2.6 : (e.radius > 18 ? L.glintRadius * 1.5 : L.glintRadius);
+      Render.blit(ctx, Render.glowDot(e.color, r), X, Y, 0, 1, L.glintAlpha);
+    }
+    for (const k of Game.pickups.active) {
+      if (k.dead) continue;
+      const X = this.sx(k.x), Y = this.sy(k.y);
+      if (X < -20 || X > W + 20 || Y < -20 || Y > H + 20) continue;
+      Render.blit(ctx, Render.glowDot(k.color, k.type === 'xpbig' ? 5 : 4), X, Y, 0, 1, 0.85);
+    }
+    ctx.globalCompositeOperation = 'source-over';
   },
 
   drawVignette(ctx) {
