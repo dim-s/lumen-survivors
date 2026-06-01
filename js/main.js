@@ -235,8 +235,47 @@ window.addEventListener('load', () => {
   Input.init(canvas);
   resize();
   window.addEventListener('resize', resize);
+  setupImmersive();
   // отладочные хуки для автотестов
   window.GAME = Game;
   window.RNG = RNG;
   requestAnimationFrame(frame);
 });
+
+// На тач-устройствах по первому жесту: полный экран + блокировка ландшафта.
+// Требует пользовательского жеста; на iOS lock недоступен — там работает
+// CSS-оверлей #rotate (просьба повернуть). Всё в try/catch — тихо деградирует.
+function enterImmersive() {
+  const el = document.documentElement;
+  const fs = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
+  const lock = () => {
+    try { if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {}); }
+    catch (e) {}
+  };
+  try {
+    if (!document.fullscreenElement && fs) {
+      const r = fs.call(el);
+      if (r && r.then) r.then(lock).catch(lock); else lock();
+    } else { lock(); }
+  } catch (e) { lock(); }
+}
+
+function setupImmersive() {
+  const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+  if (!isTouch) return;
+  const once = () => {
+    enterImmersive();
+    window.removeEventListener('touchend', once);
+    window.removeEventListener('pointerdown', once);
+  };
+  // первый жест включает иммерсивный режим (один раз)
+  window.addEventListener('touchend', once, { passive: true });
+  window.addEventListener('pointerdown', once, { passive: true });
+  // если игрок вышел из полноэкранного и снова тапнул — попробовать вернуть ландшафт
+  document.addEventListener('fullscreenchange', () => {
+    if (!document.fullscreenElement) {
+      const retry = () => { enterImmersive(); window.removeEventListener('touchend', retry); };
+      window.addEventListener('touchend', retry, { passive: true, once: true });
+    }
+  });
+}
