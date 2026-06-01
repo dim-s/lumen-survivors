@@ -24,6 +24,7 @@ const UI = {
     this.drawVignette(ctx);
     this.drawHUD(ctx);
     this.drawBanner(ctx);
+    if (Game.state === 'playing') this.drawJoystick(ctx);
 
     if (Game.state === 'levelup') this.drawDraft(ctx);
     else if (Game.state === 'paused') this.drawPaused(ctx);
@@ -364,6 +365,22 @@ const UI = {
     ctx.globalCompositeOperation = 'source-over';
   },
 
+  // визуал сенсорного джойстика
+  drawJoystick(ctx) {
+    if (!Input.touchActive) return;
+    const bx = Input.baseX, by = Input.baseY, max = Input.maxRadius;
+    let dx = Input.curX - bx, dy = Input.curY - by;
+    const d = Math.hypot(dx, dy);
+    if (d > max) { dx = dx / d * max; dy = dy / d * max; }
+    ctx.globalAlpha = 0.45;
+    ctx.strokeStyle = CONFIG.colors.player; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(bx, by, max, 0, TAU); ctx.stroke();
+    ctx.globalAlpha = 0.55;
+    ctx.fillStyle = CONFIG.colors.player;
+    ctx.beginPath(); ctx.arc(bx + dx, by + dy, 24, 0, TAU); ctx.fill();
+    ctx.globalAlpha = 1;
+  },
+
   drawVignette(ctx) {
     const p = Game.player;
     const frac = p.hp / p.maxHp;
@@ -413,8 +430,10 @@ const UI = {
 
     ctx.fillStyle = CONFIG.colors.textDim;
     ctx.font = '15px Consolas, monospace';
-    ctx.fillText('WASD / стрелки — движение      оружие стреляет само', W / 2, H * 0.68);
-    ctx.fillText('собирай осколки → новый уровень → выбирай улучшение', W / 2, H * 0.68 + 24);
+    const touch = ('ontouchstart' in window) || Input.isTouch;
+    ctx.fillText(touch ? 'тащи палец — движение      оружие стреляет само'
+                       : 'WASD / стрелки — движение      оружие стреляет само', W / 2, H * 0.68);
+    ctx.fillText('собирай искры → новый уровень → выбирай улучшение', W / 2, H * 0.68 + 24);
     ctx.fillText('выживи 10 минут', W / 2, H * 0.68 + 48);
 
     if (typeof Meta !== 'undefined' && Meta.data.best) {
