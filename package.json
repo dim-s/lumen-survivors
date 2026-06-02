@@ -1,22 +1,57 @@
 {
   "name": "lumen-survivors",
-  "version": "1.1.0",
+  "version": "1.3.0",
   "description": "LUMEN — Survivors: неоновый survivors-like. Десктопная версия для Steam.",
+  "author": "dim-s",
   "type": "module",
+  "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "node tests/build-test-bundle.mjs && node tests/harness.mjs",
-    "test:bundle": "node tests/build-test-bundle.mjs"
+    "test:bundle": "node tests/build-test-bundle.mjs",
+    "electron:dev": "node electron/dev.mjs",
+    "electron:run": "npm run build && electron .",
+    "electron:smoke": "npm run build && LUMEN_SMOKE=1 electron .",
+    "electron:build": "npm run build && electron-builder",
+    "electron:build:win": "npm run build && electron-builder --win",
+    "electron:build:mac": "npm run build && electron-builder --mac",
+    "electron:build:linux": "npm run build && electron-builder --linux"
   },
   "devDependencies": {
+    "electron": "^42.3.1",
+    "electron-builder": "^26.8.1",
     "esbuild": "^0.24.0",
+    "pixi.js": "^8.18.1",
     "typescript": "^5.7.2",
     "vite": "^6.0.0"
   },
-  "dependencies": {
-    "pixi.js": "^8.18.1"
+  "dependencies": {},
+  "build": {
+    "appId": "com.lumen.survivors",
+    "productName": "LUMEN Survivors",
+    "directories": { "output": "release", "buildResources": "build-resources" },
+    "files": ["dist/**/*", "electron/**/*"],
+    "win": {
+      "target": ["nsis"],
+      "artifactName": "LUMEN-Survivors-${version}-setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false
+    },
+    "mac": {
+      "target": ["dmg"],
+      "category": "public.app-category.games",
+      "artifactName": "LUMEN-Survivors-${version}.${ext}"
+    },
+    "linux": {
+      "target": ["AppImage"],
+      "category": "Game",
+      "artifactName": "LUMEN-Survivors-${version}.${ext}"
+    }
   }
 }
