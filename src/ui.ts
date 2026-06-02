@@ -1,8 +1,16 @@
+import { Game } from './game';
+import { CONFIG } from './config';
+import { Render } from './render';
+import { Audio2 } from './audio';
+import { Input } from './input';
+import { Meta } from './meta';
+import { rand, clamp, dist, TAU, weaponDef, fmtTime } from './utils';
+
 /* =====================================================================
    UI — весь рендер: мир, HUD, оверлеи (меню / драфт / пауза / итоги).
    ===================================================================== */
 
-const UI = {
+export const UI: any = {
   render(ctx) {
     const W = Game.viewW, H = Game.viewH;
     // вычислить тряску один раз за кадр
@@ -605,7 +613,7 @@ const UI = {
       ctx.fillText('лучший забег: ' + fmtTime(Meta.data.best), W / 2, H * 0.86);
       const codexN = Object.keys(Meta.data.codex || {}).length;
       const totalTypes = Object.keys(CONFIG.enemies).length;
-      const parts = [];
+      const parts: any[] = [];
       if (Meta.data.maxDepth > 0) parts.push('глубина: ' + Meta.data.maxDepth + '/' + CONFIG.depths.length);
       parts.push('кодекс: ' + codexN + '/' + totalTypes);
       ctx.fillStyle = CONFIG.colors.textDim; ctx.font = '13px Consolas, monospace';

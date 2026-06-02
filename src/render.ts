@@ -4,11 +4,13 @@
    через drawImage (быстро), вместо shadowBlur каждый кадр.
    ===================================================================== */
 
-const Render = {
+import { TAU } from './utils';
+
+export const Render: any = {
   spriteCache: new Map(),
 
   // Глоу-точка (радиальный градиент) — для частиц, снарядов, осколков
-  glowDot(color, radius) {
+  glowDot(color: string, radius: number) {
     radius = Math.max(1, Math.round(radius));   // квантование: кэш не растёт от float-радиусов
     const key = 'dot|' + color + '|' + radius;
     let c = this.spriteCache.get(key);
@@ -33,7 +35,7 @@ const Render = {
   },
 
   // Неоновая фигура с обводкой и свечением (враги, игрок)
-  glowShape(color, radius, shape) {
+  glowShape(color: string, radius: number, shape: string) {
     radius = Math.max(1, Math.round(radius));   // квантование радиуса (см. glowDot)
     const key = 'shape|' + color + '|' + radius + '|' + shape;
     let c = this.spriteCache.get(key);
@@ -69,12 +71,12 @@ const Render = {
     return c;
   },
 
-  _fillFor(color) {
+  _fillFor(color: string) {
     // полупрозрачная заливка того же оттенка
     return 'rgba(0,0,0,0.35)';
   },
 
-  _path(g, r, shape) {
+  _path(g: any, r: number, shape: string) {
     g.beginPath();
     if (shape === 'tri') {
       for (let i = 0; i < 3; i++) {
@@ -100,7 +102,7 @@ const Render = {
   },
 
   // Нарисовать кэш-спрайт с центром в (x,y), опц. поворот/масштаб/альфа
-  blit(ctx, sprite, x, y, rot = 0, scale = 1, alpha = 1) {
+  blit(ctx: any, sprite: any, x: number, y: number, rot = 0, scale = 1, alpha = 1) {
     const off = sprite._off;
     ctx.globalAlpha = alpha;
     if (rot === 0 && scale === 1) {

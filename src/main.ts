@@ -1,81 +1,18 @@
 /* =====================================================================
    MAIN — загрузка, размер canvas (DPR), фикс-таймстеп цикл, ввод.
+   Точка входа ESM-сборки (Vite / Electron).
    ===================================================================== */
 
-// --- мета-прогрессия: лучший забег, золото, перм-апгрейды ---
-const Meta = {
-  data: { best: 0, gold: 0, upgrades: {}, volume: 0.7,
-          maxDepth: 0, unlocks: {}, codex: {}, totalKills: 0 },
-  load() {
-    try {
-      const s = localStorage.getItem('lumen_meta');
-      if (s) this.data = Object.assign(this.data, JSON.parse(s));
-    } catch (e) {}
-    if (!this.data.upgrades) this.data.upgrades = {};
-    if (!this.data.unlocks)  this.data.unlocks = {};
-    if (!this.data.codex)    this.data.codex = {};
-    if (this.data.maxDepth == null)  this.data.maxDepth = 0;
-    if (this.data.totalKills == null) this.data.totalKills = 0;
-  },
-  save() { try { localStorage.setItem('lumen_meta', JSON.stringify(this.data)); } catch (e) {} },
-  recordBest(time) { if (time > this.data.best) this.data.best = time; },
+import '../css/style.css';
+import { CONFIG } from './config';
+import { RNG, clamp } from './utils';
+import { Meta } from './meta';
+import { Audio2 } from './audio';
+import { Input } from './input';
+import { Game } from './game';
+import { UI } from './ui';
 
-  // Контент заперт, только если он есть в CONFIG.unlocks и веха ещё не взята.
-  // Всё, чего нет в списке разблокировок, доступно по умолчанию.
-  isUnlocked(key) {
-    const u = CONFIG.unlocks.find(x => x.key === key);
-    if (!u) return true;
-    return !!(this.data.unlocks && this.data.unlocks[key]);
-  },
-
-  // Подвести итог забега: рекорд, киллы, кодекс, открыть следующую глубину,
-  // проверить вехи разблокировок. Возвращает имена только что открытого.
-  recordRun(stats) {
-    if (!this.data.unlocks) this.data.unlocks = {};
-    if (!this.data.codex)   this.data.codex = {};
-    if (this.data.maxDepth == null)   this.data.maxDepth = 0;
-    if (this.data.totalKills == null) this.data.totalKills = 0;
-    this.recordBest(stats.time);
-    this.data.totalKills += stats.kills || 0;
-    if (stats.seen) for (const k of stats.seen) this.data.codex[k] = (this.data.codex[k] || 0) + 1;
-    if (stats.won) {
-      const next = (stats.depth || 0) + 1;
-      if (next > this.data.maxDepth && next <= CONFIG.depths.length) this.data.maxDepth = next;
-    }
-    const freshly = [];
-    for (const u of CONFIG.unlocks) {
-      if (this.data.unlocks[u.key]) continue;
-      const c = u.cond;
-      const ok =
-        (c.survive    != null && stats.time   >= c.survive) ||
-        (c.level      != null && stats.level  >= c.level) ||
-        (c.totalKills != null && this.data.totalKills >= c.totalKills) ||
-        (c.killBoss   === true && stats.killedBoss) ||
-        (c.win        === true && stats.won) ||
-        (c.depth      != null && (stats.depth || 0) >= c.depth);
-      if (ok) { this.data.unlocks[u.key] = true; freshly.push(u.key); }
-    }
-    this.save();
-    return freshly;
-  },
-
-  upgLevel(key) { return this.data.upgrades[key] || 0; },
-  upgCost(key) {
-    const u = CONFIG.shop.find(s => s.key === key);
-    const lv = this.upgLevel(key);
-    return (lv >= u.max) ? null : u.cost[lv];
-  },
-  buy(key) {
-    const c = this.upgCost(key);
-    if (c == null || this.data.gold < c) return false;
-    this.data.gold -= c;
-    this.data.upgrades[key] = this.upgLevel(key) + 1;
-    this.save();
-    return true;
-  },
-};
-
-let canvas, ctx, dpr = 1;
+let canvas: any, ctx: any, dpr = 1;
 
 function resize() {
   const cssW = window.innerWidth, cssH = window.innerHeight;
@@ -90,7 +27,7 @@ function resize() {
 }
 
 // попадание курсора в прямоугольник (для кликабельных UI-зон)
-function hit(r) {
+function hit(r: any) {
   return r && Input.mouseX >= r.x && Input.mouseX <= r.x + r.w &&
          Input.mouseY >= r.y && Input.mouseY <= r.y + r.h;
 }
@@ -197,14 +134,14 @@ function handleInput() {
 let acc = 0, last = 0;
 const STEP = 1 / 60;
 
-function frame(now) {
+function frame(now: number) {
   if (!last) last = now;
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   Game.clock += dt;
 
   // отладочная заморозка: рендерим кадр, но не обновляем мир и не читаем ввод
-  if (window.__freeze) { UI.render(ctx); Input.endFrame(); requestAnimationFrame(frame); return; }
+  if ((window as any).__freeze) { UI.render(ctx); Input.endFrame(); requestAnimationFrame(frame); return; }
 
   handleInput();
 
@@ -226,7 +163,7 @@ window.addEventListener('load', () => {
   const sp = params.get('seed');
   const seed = sp !== null ? (parseInt(sp, 10) >>> 0) : (Date.now() >>> 0);
   RNG.seed(seed);
-  window.__seed = seed;
+  (window as any).__seed = seed;
   Game.clock = 0;
   Meta.load();
   Audio2.volume = (Meta.data.volume != null) ? Meta.data.volume : 0.7;
@@ -237,8 +174,8 @@ window.addEventListener('load', () => {
   window.addEventListener('resize', resize);
   setupImmersive();
   // отладочные хуки для автотестов
-  window.GAME = Game;
-  window.RNG = RNG;
+  (window as any).GAME = Game;
+  (window as any).RNG = RNG;
   requestAnimationFrame(frame);
 });
 
@@ -246,10 +183,10 @@ window.addEventListener('load', () => {
 // Требует пользовательского жеста; на iOS lock недоступен — там работает
 // CSS-оверлей #rotate (просьба повернуть). Всё в try/catch — тихо деградирует.
 function enterImmersive() {
-  const el = document.documentElement;
+  const el = document.documentElement as any;
   const fs = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
   const lock = () => {
-    try { if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {}); }
+    try { if ((screen as any).orientation && (screen as any).orientation.lock) (screen as any).orientation.lock('landscape').catch(() => {}); }
     catch (e) {}
   };
   try {
@@ -275,7 +212,7 @@ function setupImmersive() {
   document.addEventListener('fullscreenchange', () => {
     if (!document.fullscreenElement) {
       const retry = () => { enterImmersive(); window.removeEventListener('touchend', retry); };
-      window.addEventListener('touchend', retry, { passive: true, once: true });
+      window.addEventListener('touchend', retry, { passive: true, once: true } as any);
     }
   });
 }

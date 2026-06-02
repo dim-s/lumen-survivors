@@ -4,7 +4,9 @@
    движения; тап = клик по UI. Без библиотек.
    ===================================================================== */
 
-const Input = {
+import { Game } from './game';
+
+export const Input: any = {
   keys: {},
   mouseX: 0, mouseY: 0,
   mouseDown: false,
@@ -18,7 +20,7 @@ const Input = {
   deadzone: 14,
   maxRadius: 72,
 
-  init(canvas) {
+  init(canvas: any) {
     window.addEventListener('keydown', (e) => {
       const k = this._norm(e.key);
       if (!this.keys[k]) this.pressed[k] = true;
@@ -28,7 +30,7 @@ const Input = {
     window.addEventListener('keyup', (e) => { this.keys[this._norm(e.key)] = false; });
     window.addEventListener('blur', () => { this.keys = {}; });
 
-    canvas.addEventListener('mousemove', (e) => {
+    canvas.addEventListener('mousemove', (e: any) => {
       const p = this._toGame(e.clientX, e.clientY, canvas);
       this.mouseX = p.x; this.mouseY = p.y;
     });
@@ -36,7 +38,7 @@ const Input = {
     window.addEventListener('mouseup', () => { this.mouseDown = false; });
 
     // ----- сенсор -----
-    canvas.addEventListener('touchstart', (e) => {
+    canvas.addEventListener('touchstart', (e: any) => {
       e.preventDefault();
       this.isTouch = true;
       const t = e.changedTouches[0];
@@ -51,7 +53,7 @@ const Input = {
       }
     }, { passive: false });
 
-    canvas.addEventListener('touchmove', (e) => {
+    canvas.addEventListener('touchmove', (e: any) => {
       e.preventDefault();
       for (const t of e.changedTouches) {
         if (t.identifier === this.touchId) {
@@ -62,7 +64,7 @@ const Input = {
       }
     }, { passive: false });
 
-    const endTouch = (e) => {
+    const endTouch = (e: any) => {
       for (const t of e.changedTouches) {
         if (t.identifier === this.touchId) { this.touchId = null; this.touchActive = false; }
       }
@@ -72,7 +74,7 @@ const Input = {
   },
 
   // клиентские координаты → игровые (логические px), не зависит от DPR
-  _toGame(cx, cy, canvas) {
+  _toGame(cx: number, cy: number, canvas: any) {
     const r = canvas.getBoundingClientRect();
     return {
       x: (cx - r.left) * (Game.viewW / r.width),
@@ -80,7 +82,7 @@ const Input = {
     };
   },
 
-  _norm(k) { return k.toLowerCase(); },
+  _norm(k: string) { return k.toLowerCase(); },
 
   // Вектор движения: сенсор → мышь (зажата ЛКМ в игре) → WASD/стрелки
   moveVector() {
@@ -107,7 +109,7 @@ const Input = {
     return { x, y };
   },
 
-  wasPressed(k) { return !!this.pressed[k]; },
+  wasPressed(k: string) { return !!this.pressed[k]; },
 
   // вызвать в конце кадра
   endFrame() {

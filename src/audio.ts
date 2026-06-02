@@ -3,7 +3,9 @@
    Лениво инициализируется на первый пользовательский жест.
    ===================================================================== */
 
-const Audio2 = {
+import { Meta } from './meta';
+
+export const Audio2: any = {
   ctx: null,
   master: null,
   enabled: true,
@@ -13,7 +15,7 @@ const Audio2 = {
 
   ensure() {
     if (this.ctx) return;
-    const AC = window.AudioContext || window.webkitAudioContext;
+    const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
     if (!AC) { this.enabled = false; return; }
     this.ctx = new AC();
     this.master = this.ctx.createGain();
@@ -21,7 +23,7 @@ const Audio2 = {
     this.master.connect(this.ctx.destination);
   },
 
-  setVolume(v) {
+  setVolume(v: number) {
     this.volume = Math.max(0, Math.min(1, v));
     if (this.volume > 0) this._lastVol = this.volume;
     if (this.master) this.master.gain.value = 0.5 * this.volume;
@@ -32,7 +34,7 @@ const Audio2 = {
   resume() { if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume(); },
 
   // базовый тон
-  tone(freq, dur, type = 'sine', vol = 0.3, sweep = 0) {
+  tone(freq: number, dur: number, type = 'sine', vol = 0.3, sweep = 0) {
     if (!this.enabled) return;
     this.ensure();
     if (!this.ctx) return;
@@ -49,7 +51,7 @@ const Audio2 = {
     o.start(t); o.stop(t + dur + 0.02);
   },
 
-  noise(dur, vol = 0.2, hp = 800) {
+  noise(dur: number, vol = 0.2, hp = 800) {
     if (!this.enabled) return;
     this.ensure();
     if (!this.ctx) return;
@@ -69,7 +71,7 @@ const Audio2 = {
   },
 
   // троттлинг частых звуков
-  _throttle(key, ms) {
+  _throttle(key: string, ms: number) {
     const now = (this.ctx ? this.ctx.currentTime * 1000 : performance.now());
     if (this.lastPlay[key] && now - this.lastPlay[key] < ms) return false;
     this.lastPlay[key] = now;

@@ -2,14 +2,16 @@
    UTILS — математика, рандом, пулинг
    ===================================================================== */
 
-const TAU = Math.PI * 2;
+import { CONFIG } from './config';
+
+export const TAU = Math.PI * 2;
 
 /* Сидируемый PRNG (mulberry32) — детерминизм для автотестов.
    Весь геймплейный рандом идёт через RNG.next(); сид задаётся в main.js
    (?seed=N или Date.now()). Аудио-шум намеренно не детерминируется. */
-const RNG = {
+export const RNG = {
   _s: 1,
-  seed(n) { this._s = (n >>> 0) || 1; },
+  seed(n: number) { this._s = (n >>> 0) || 1; },
   next() {
     let t = (this._s += 0x6D2B79F5) >>> 0;
     t = Math.imul(t ^ (t >>> 15), t | 1);
@@ -19,21 +21,21 @@ const RNG = {
 };
 
 // определение оружия по ключу — базовое или эволюционировавшее
-function weaponDef(key) { return CONFIG.weapons[key] || CONFIG.evolutions[key]; }
+export function weaponDef(key: string) { return CONFIG.weapons[key] || CONFIG.evolutions[key]; }
 
-function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
-function lerp(a, b, t) { return a + (b - a) * t; }
-function rand(a = 1, b) { return b === undefined ? RNG.next() * a : a + RNG.next() * (b - a); }
-function randInt(a, b) { return Math.floor(rand(a, b + 1)); }
-function pick(arr) { return arr[(RNG.next() * arr.length) | 0]; }
-function chance(p) { return RNG.next() < p; }
+export function clamp(v: number, lo: number, hi: number) { return v < lo ? lo : (v > hi ? hi : v); }
+export function lerp(a: number, b: number, t: number) { return a + (b - a) * t; }
+export function rand(a = 1, b?: number) { return b === undefined ? RNG.next() * a : a + RNG.next() * (b - a); }
+export function randInt(a: number, b: number) { return Math.floor(rand(a, b + 1)); }
+export function pick(arr: any[]) { return arr[(RNG.next() * arr.length) | 0]; }
+export function chance(p: number) { return RNG.next() < p; }
 
-function dist2(ax, ay, bx, by) { const dx = ax - bx, dy = ay - by; return dx * dx + dy * dy; }
-function dist(ax, ay, bx, by) { return Math.sqrt(dist2(ax, ay, bx, by)); }
-function angleTo(ax, ay, bx, by) { return Math.atan2(by - ay, bx - ax); }
+export function dist2(ax: number, ay: number, bx: number, by: number) { const dx = ax - bx, dy = ay - by; return dx * dx + dy * dy; }
+export function dist(ax: number, ay: number, bx: number, by: number) { return Math.sqrt(dist2(ax, ay, bx, by)); }
+export function angleTo(ax: number, ay: number, bx: number, by: number) { return Math.atan2(by - ay, bx - ax); }
 
 // Взвешенный выбор ключа по объекту {key: weight}
-function weightedPick(weights) {
+export function weightedPick(weights: any) {
   let total = 0;
   for (const k in weights) total += weights[k];
   let r = RNG.next() * total;
@@ -46,9 +48,9 @@ function weightedPick(weights) {
 }
 
 // Перемешать N различных элементов массива (Fisher-Yates, частичный)
-function sampleN(arr, n) {
+export function sampleN(arr: any[], n: number) {
   const a = arr.slice();
-  const out = [];
+  const out: any[] = [];
   n = Math.min(n, a.length);
   for (let i = 0; i < n; i++) {
     const j = i + ((RNG.next() * (a.length - i)) | 0);
@@ -59,7 +61,7 @@ function sampleN(arr, n) {
 }
 
 // Двигаться от (x,y) к (tx,ty) со скоростью speed*dt, вернуть {x,y}
-function moveToward(x, y, tx, ty, step) {
+export function moveToward(x: number, y: number, tx: number, ty: number, step: number) {
   const dx = tx - x, dy = ty - y;
   const d = Math.hypot(dx, dy);
   if (d <= step || d === 0) return { x: tx, y: ty, dx: 0, dy: 0 };
@@ -69,13 +71,16 @@ function moveToward(x, y, tx, ty, step) {
 
 /* Простой пул объектов: фабрика создаёт, reset переинициализирует.
    Активные хранятся в .active, мёртвые — в .free. */
-class Pool {
-  constructor(factory) {
+export class Pool {
+  factory: () => any;
+  active: any[] = [];
+  free: any[] = [];
+  constructor(factory: () => any) {
     this.factory = factory;
     this.active = [];
     this.free = [];
   }
-  spawn(initFn) {
+  spawn(initFn?: (o: any) => void) {
     let o = this.free.pop();
     if (!o) o = this.factory();
     o.dead = false;
@@ -100,7 +105,7 @@ class Pool {
   }
 }
 
-function fmtTime(sec) {
+export function fmtTime(sec: number) {
   sec = Math.max(0, Math.floor(sec));
   const m = (sec / 60) | 0;
   const s = sec % 60;

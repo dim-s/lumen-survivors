@@ -2,11 +2,18 @@
    ENTITIES — игрок, враги, снаряды, подбираемые, частицы, числа урона.
    ===================================================================== */
 
-class Player {
+import { CONFIG } from './config';
+import { RNG, TAU, clamp } from './utils';
+import { Meta } from './meta';
+
+export class Player {
+  // Динамический набор полей (свет/статы/прокачка) — типизируется прагматично.
+  [key: string]: any;
+
   constructor() {
     this.reset();
   }
-  reset(charKey) {
+  reset(charKey?: any) {
     const p = CONFIG.player;
     this.x = 0; this.y = 0;
     this.vx = 0; this.vy = 0;
@@ -63,16 +70,16 @@ class Player {
     else this.light = clamp(CONFIG.light.base + this._charLightBonus, CONFIG.light.min, CONFIG.light.max);
   }
 
-  addWeapon(key) {
-    const w = this.weapons.find(w => w.key === key);
+  addWeapon(key: string) {
+    const w = this.weapons.find((w: any) => w.key === key);
     if (w) { if (w.level < 5) w.level++; return; }
     this.weapons.push({ key, level: 1, timer: 0, orbAngle: 0 });
   }
-  addPassive(key) {
+  addPassive(key: string) {
     this.passives[key] = Math.min(5, (this.passives[key] || 0) + 1);
     this.recalc();
   }
-  hasWeapon(key) { const w = this.weapons.find(w => w.key === key); return w ? w.level : 0; }
+  hasWeapon(key: string) { const w = this.weapons.find((w: any) => w.key === key); return w ? w.level : 0; }
 
   recalc() {
     const b = this.base;
@@ -101,7 +108,7 @@ class Player {
     if (healDelta > 0) this.hp = Math.min(this.maxHp, this.hp + healDelta);
   }
 
-  gainXp(v) {
+  gainXp(v: number) {
     this.xp += v;
     let leveled = 0;
     while (this.xp >= this.xpNext) {
@@ -116,7 +123,7 @@ class Player {
 
 // --- Фабрики для пулов (плоские объекты для скорости) ---
 
-function makeEnemy() {
+export function makeEnemy() {
   return { x:0,y:0, kx:0,ky:0, hp:0, maxHp:0, radius:0, speed:0, damage:0,
            color:'#fff', shape:'tri', xp:1, bigGem:false, score:1, isBoss:false,
            flash:0, dead:false, typeKey:'chaser', wob: RNG.next()*TAU, dmgCd:0, hitCd:0,
@@ -127,18 +134,18 @@ function makeEnemy() {
            suppressLight:false, suppressRange:0,
            ring:false, ringCd:0, ringTimer:0, ringShots:0, ringSpeed:0, ringDmg:0, ringRadius:6 };
 }
-function makeProj() {
+export function makeProj() {
   return { x:0,y:0, vx:0,vy:0, dmg:0, radius:4, life:0, pierce:0, color:'#fff',
            kind:'bolt', knockback:0, dead:false, hitIds:null, angle:0, ownerTick:0,
            orbIndex:0, src:null, trigger:0, hostile:false, target:null,
            slowMul:1, tick:0, tickTimer:0, maxLife:0, bounces:0, bounceGain:0 };
 }
-function makePickup() {
+export function makePickup() {
   return { x:0,y:0, vx:0,vy:0, type:'xp', value:1, color:'#fff', dead:false, magnet:false, born:0 };
 }
-function makeParticle() {
+export function makeParticle() {
   return { x:0,y:0, vx:0,vy:0, life:0, maxLife:0, color:'#fff', size:3, dead:false, fade:1 };
 }
-function makeDmgNum() {
+export function makeDmgNum() {
   return { x:0,y:0, vy:-30, value:0, life:0, color:'#fff', crit:false, dead:false };
 }

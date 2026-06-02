@@ -9,7 +9,8 @@
 <meta name="theme-color" content="#03040a">
 <title>LUMEN — Survivors</title>
 <link rel="icon" href="data:,">
-<link rel="stylesheet" href="css/style.css">
+<!-- критический фон против белой вспышки до загрузки основного CSS (импортируется в main.ts) -->
+<style>html,body{margin:0;background:#03040a;overflow:hidden}</style>
 </head>
 <body>
 <div id="game-wrap">
@@ -22,16 +23,6 @@
     <div class="rotate-txt">Поверни устройство<br>горизонтально</div>
   </div>
 </div>
-<script src="js/config.js"></script>
-<script src="js/utils.js"></script>
-<script src="js/audio.js"></script>
-<script src="js/input.js"></script>
-<script src="js/render.js"></script>
-<script src="js/entities.js"></script>
-<script src="js/weapons.js"></script>
-<script src="js/spawner.js"></script>
-<script src="js/ui.js"></script>
-<script src="js/game.js"></script>
-<script src="js/main.js"></script>
+<script type="module" src="/src/main.ts"></script>
 </body>
 </html>

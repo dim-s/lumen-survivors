@@ -3,8 +3,13 @@
    Урон по врагам идёт через Game.hitEnemy (там же смерть/дроп/партиклы).
    ===================================================================== */
 
-const Weapons = {
-  update(player, dt) {
+import { CONFIG } from './config';
+import { weaponDef, angleTo, rand, TAU, dist2 } from './utils';
+import { Game } from './game';
+import { Audio2 } from './audio';
+
+export const Weapons: any = {
+  update(player: any, dt: number) {
     for (const w of player.weapons) {
       const def = weaponDef(w.key);
       const lvl = w.level - 1;
@@ -24,9 +29,9 @@ const Weapons = {
     }
   },
 
-  _dmg(player, def, lvl) { return def.dmg[lvl] * player.damageMult; },
+  _dmg(player: any, def: any, lvl: number) { return def.dmg[lvl] * player.damageMult; },
 
-  _bolt(player, w, def, lvl) {
+  _bolt(player: any, w: any, def: any, lvl: number) {
     const count = def.count[lvl];
     const targets = Game.nearestEnemies(player.x, player.y, count, 900);
     for (let i = 0; i < count; i++) {
@@ -37,7 +42,7 @@ const Weapons = {
       // Сумеречный клинок: чем меньше радиус света, тем больнее удар
       let dmgv = this._dmg(player, def, lvl);
       if (def.edgeBonus) dmgv *= 1 + def.edgeBonus * (1 - player.light / CONFIG.light.max);
-      Game.projectiles.spawn((p) => {
+      Game.projectiles.spawn((p: any) => {
         p.x = player.x; p.y = player.y;
         p.vx = Math.cos(ang) * def.speed;
         p.vy = Math.sin(ang) * def.speed;
@@ -57,7 +62,7 @@ const Weapons = {
     Audio2.shoot();
   },
 
-  _orbit(player, w, def, lvl, dt) {
+  _orbit(player: any, w: any, def: any, lvl: number, dt: number) {
     w.orbAngle = (w.orbAngle + def.orbitSpeed * dt) % TAU;
     const count = def.count[lvl];
     const dmg = this._dmg(player, def, lvl);
@@ -80,7 +85,7 @@ const Weapons = {
     w._nodeCount = count;
   },
 
-  _nova(player, w, def, lvl) {
+  _nova(player: any, w: any, def: any, lvl: number) {
     const r = def.novaRadius[lvl];
     const dmg = this._dmg(player, def, lvl);
     const r2 = r * r;
@@ -98,7 +103,7 @@ const Weapons = {
     Audio2.nova();
   },
 
-  _whip(player, w, def, lvl) {
+  _whip(player: any, w: any, def: any, lvl: number) {
     const len = def.whipLen[lvl];
     const wide = def.whipWide;
     const dmg = this._dmg(player, def, lvl);
@@ -130,7 +135,7 @@ const Weapons = {
     Audio2.shoot();
   },
 
-  _chain(player, w, def, lvl) {
+  _chain(player: any, w: any, def: any, lvl: number) {
     const dmg = this._dmg(player, def, lvl);
     const maxHops = def.count[lvl];
     let cur = Game.nearestEnemy(player.x, player.y, def.firstRange);
@@ -156,7 +161,7 @@ const Weapons = {
   },
 
   // Луч-маяк: непрерывный луч(и) в ближайших, урон тиками вдоль линии
-  _beam(player, w, def, lvl, dt) {
+  _beam(player: any, w: any, def: any, lvl: number, dt: number) {
     const count = def.count[lvl];
     const len = def.beamLen[lvl];
     const wide = def.beamWide;
@@ -189,14 +194,14 @@ const Weapons = {
   },
 
   // Отражённый луч: снаряд, отскакивающий от кромки тьмы (см. Game.updateRicochet)
-  _ricochet(player, w, def, lvl) {
+  _ricochet(player: any, w: any, def: any, lvl: number) {
     const count = def.count[lvl];
     const targets = Game.nearestEnemies(player.x, player.y, count, 720);
     for (let i = 0; i < count; i++) {
       const t = targets[i];
       const ang = t ? angleTo(player.x, player.y, t.x, t.y)
                     : (player.lastDir ? Math.atan2(player.lastDir.y, player.lastDir.x) : rand(0, TAU));
-      Game.projectiles.spawn((p) => {
+      Game.projectiles.spawn((p: any) => {
         p.x = player.x; p.y = player.y;
         p.vx = Math.cos(ang) * def.speed; p.vy = Math.sin(ang) * def.speed;
         p.dmg = this._dmg(player, def, lvl);
@@ -210,11 +215,11 @@ const Weapons = {
   },
 
   // Пульс-фонарь: ставит стоячий источник света — свет-зону (см. Game.updateLantern)
-  _lantern(player, w, def, lvl) {
+  _lantern(player: any, w: any, def: any, lvl: number) {
     const count = def.count[lvl];
     for (let i = 0; i < count; i++) {
       const a = rand(0, TAU), r = count > 1 ? rand(20, 60) : 0;
-      Game.projectiles.spawn((p) => {
+      Game.projectiles.spawn((p: any) => {
         p.x = player.x + Math.cos(a) * r; p.y = player.y + Math.sin(a) * r;
         p.vx = 0; p.vy = 0; p.kind = 'lantern';
         p.radius = def.lanternRadius[lvl];
@@ -228,12 +233,12 @@ const Weapons = {
     Audio2.nova();
   },
 
-  _mine(player, w, def, lvl) {
+  _mine(player: any, w: any, def: any, lvl: number) {
     const count = def.count[lvl];
     const dmg = this._dmg(player, def, lvl);
     for (let i = 0; i < count; i++) {
       const a = rand(0, TAU), r = count > 1 ? rand(24, 66) : 0;
-      Game.projectiles.spawn((p) => {
+      Game.projectiles.spawn((p: any) => {
         p.x = player.x + Math.cos(a) * r; p.y = player.y + Math.sin(a) * r;
         p.vx = 0; p.vy = 0; p.kind = 'mine';
         p.dmg = dmg; p.color = def.color; p.radius = def.mineRadius;

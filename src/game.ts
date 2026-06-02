@@ -1,9 +1,18 @@
+import { CONFIG } from './config';
+import { Pool, clamp, lerp, sampleN, TAU, dist2, angleTo, rand, pick } from './utils';
+import { Player, makeEnemy, makeProj, makePickup, makeParticle, makeDmgNum } from './entities';
+import { Meta } from './meta';
+import { Spawner } from './spawner';
+import { Weapons } from './weapons';
+import { Input } from './input';
+import { Audio2 } from './audio';
+
 /* =====================================================================
    GAME — состояние, апдейт, рендер, коллизии. Центр всего.
    Состояния: menu | playing | levelup | paused | gameover | win
    ===================================================================== */
 
-const Game = {
+export const Game: any = {
   state: 'menu',
   player: null,
   enemies: null, projectiles: null, pickups: null, particles: null, dmgNumbers: null,
@@ -659,7 +668,7 @@ const Game = {
   },
 
   nearestEnemies(x, y, count, maxD) {
-    const res = [];
+    const res: any[] = [];
     const md2 = maxD * maxD;
     for (const e of this.enemies.active) {
       if (e.dead) continue;
@@ -740,7 +749,7 @@ const Game = {
   generateOffers() {
     const p = this.player;
     // доступные эволюции: оружие на ур.5 + нужная пассивка
-    const evos = [];
+    const evos: any[] = [];
     for (const key in CONFIG.weapons) {
       const def = CONFIG.weapons[key];
       const w = p.weapons.find(w => w.key === key);
@@ -749,7 +758,7 @@ const Game = {
       }
     }
     // обычные кандидаты
-    const cands = [];
+    const cands: any[] = [];
     for (const key in CONFIG.weapons) {
       const def = CONFIG.weapons[key];
       if (p.weapons.some(x => x.key === def.evolveInto)) continue;  // уже эволюционировало
@@ -764,7 +773,7 @@ const Game = {
       if (lvl < 5) cands.push({ type: 'passive', key, isNew: lvl === 0, resLvl: lvl + 1 });
     }
     // гарантированно показать одну эволюцию, если доступна
-    let chosen = [];
+    let chosen: any[] = [];
     if (evos.length) chosen.push(pick(evos));
     chosen = chosen.concat(sampleN(cands, 3 - chosen.length));
     while (chosen.length < 3) chosen.push({ type: 'heal' });

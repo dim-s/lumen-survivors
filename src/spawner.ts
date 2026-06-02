@@ -3,19 +3,24 @@
    Спавнит за краем видимой области вокруг игрока. Боссы по таймеру.
    ===================================================================== */
 
-const Spawner = {
+import { CONFIG } from './config';
+import { clamp, rand, randInt, chance, weightedPick, TAU } from './utils';
+import { Game } from './game';
+import { Audio2 } from './audio';
+
+export const Spawner: any = {
   timer: 0,
   bossesSpawned: 0,
 
   reset() { this.timer = 0; this.bossesSpawned = 0; },
 
-  currentPhase(t) {
+  currentPhase(t: number) {
     let ph = CONFIG.phases[0];
     for (const p of CONFIG.phases) if (t >= p.tStart) ph = p;
     return ph;
   },
 
-  update(dt, t) {
+  update(dt: number, t: number) {
     // боссы
     if (this.bossesSpawned < CONFIG.bossTimes.length &&
         t >= CONFIG.bossTimes[this.bossesSpawned]) {
@@ -38,11 +43,11 @@ const Spawner = {
   },
 
   // веса фазы, помноженные на weightMul активных аномалий (Прилив роя, Голод…)
-  effectiveWeights(ph) {
+  effectiveWeights(ph: any) {
     const wm = Game.runMods && Game.runMods.weightMul;
     if (!wm) return ph.weights;
     let touched = false;
-    const out = {};
+    const out: any = {};
     for (const k in ph.weights) {
       out[k] = ph.weights[k] * (wm[k] || 1);
       if (wm[k]) touched = true;
@@ -73,17 +78,17 @@ const Spawner = {
     return { x: cx + hw, y: cy + rand(-hh, hh) };
   },
 
-  spawnEnemy(key, ph) {
+  spawnEnemy(key: string, ph: any) {
     const pos = this.edgePos();
     this.spawnTypeAt(key, pos.x, pos.y, ph, false);
   },
 
   // единая инициализация врага: фаза × модификаторы забега (глубина+аномалии).
   // Используется и волнами, и при разделении Дробителя (isChild=true).
-  spawnTypeAt(key, x, y, ph, isChild) {
+  spawnTypeAt(key: string, x: number, y: number, ph: any, isChild: boolean) {
     const def = CONFIG.enemies[key];
     const rm = Game.runMods || { hp: 1, spd: 1, dmg: 1 };
-    Game.enemies.spawn((e) => {
+    Game.enemies.spawn((e: any) => {
       e.typeKey = key;
       e.x = x; e.y = y;
       e.kx = 0; e.ky = 0;
@@ -127,19 +132,19 @@ const Spawner = {
   },
 
   // ростер боссов по глубине: глубже — новые владыки тьмы
-  bossKey(idx, depth) {
+  bossKey(idx: number, depth: number) {
     if (depth >= 3) return idx === 0 ? 'boss3' : 'boss4';
     if (depth >= 1) return idx === 0 ? 'boss2' : 'boss3';
     return idx === 0 ? 'boss' : 'boss2';
   },
 
-  spawnBoss(t) {
+  spawnBoss(t: number) {
     const idx = this.bossesSpawned;
     const rm = Game.runMods || { hp: 1, dmg: 1, depth: 0 };
     const key = this.bossKey(idx, rm.depth || 0);
     const def = CONFIG.enemies[key];
     const pos = this.edgePos();
-    Game.enemies.spawn((e) => {
+    Game.enemies.spawn((e: any) => {
       e.typeKey = key;
       e.x = pos.x; e.y = pos.y;
       e.kx = 0; e.ky = 0;
