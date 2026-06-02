@@ -14,18 +14,18 @@ html, body {
 #game-wrap {
   position: fixed;
   inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background:
-    radial-gradient(1200px 800px at 50% 40%, #0c1020 0%, #05060a 70%, #020308 100%);
+  background: #03040a;
 }
 
-#game {
+/* два стэкнутых канваса: pixi-мир снизу (opaque), 2D-HUD сверху (прозрачный) */
+#game-pixi, #game {
+  position: absolute;
+  inset: 0;
   display: block;
-  image-rendering: optimizeQuality;
   touch-action: none;
 }
+#game-pixi { z-index: 0; }
+#game { z-index: 1; background: transparent; }
 
 /* Просьба повернуть устройство — видна только на тач-устройствах в портрете */
 #rotate {

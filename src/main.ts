@@ -11,8 +11,9 @@ import { Audio2 } from './audio';
 import { Input } from './input';
 import { Game } from './game';
 import { UI } from './ui';
+import { PixiRenderer } from './pixirender';
 
-let canvas: any, ctx: any, dpr = 1;
+let canvas: any, ctx: any, pixiCanvas: any, dpr = 1;
 
 function resize() {
   const cssW = window.innerWidth, cssH = window.innerHeight;
@@ -24,6 +25,7 @@ function resize() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   Game.viewW = cssW;
   Game.viewH = cssH;
+  PixiRenderer.resize(cssW, cssH);   // pixi-канвас сам держит свой DPR (resolution)
 }
 
 // попадание курсора в прямоугольник (для кликабельных UI-зон)
@@ -141,7 +143,7 @@ function frame(now: number) {
   Game.clock += dt;
 
   // отладочная заморозка: рендерим кадр, но не обновляем мир и не читаем ввод
-  if ((window as any).__freeze) { UI.render(ctx); Input.endFrame(); requestAnimationFrame(frame); return; }
+  if ((window as any).__freeze) { UI.render(ctx); PixiRenderer.render(); Input.endFrame(); requestAnimationFrame(frame); return; }
 
   handleInput();
 
@@ -150,14 +152,18 @@ function frame(now: number) {
   while (acc >= STEP && steps < 5) { Game.update(STEP); acc -= STEP; steps++; }
   if (acc > STEP * 5) acc = 0;
 
+  // UI.render — ПЕРВЫМ: считает Game.shakeX/Y (seeded rand, детерминизм) и рисует 2D-HUD;
+  // PixiRenderer.render — следом: читает shake, рисует мир+тьму на нижнем канвасе.
   UI.render(ctx);
+  PixiRenderer.render();
   Input.endFrame();
   requestAnimationFrame(frame);
 }
 
-window.addEventListener('load', () => {
+window.addEventListener('load', async () => {
   canvas = document.getElementById('game');
   ctx = canvas.getContext('2d');
+  pixiCanvas = document.getElementById('game-pixi');
   // сид RNG: ?seed=N для детерминированных тестов, иначе по времени
   const params = new URLSearchParams(location.search);
   const sp = params.get('seed');
@@ -170,6 +176,10 @@ window.addEventListener('load', () => {
   Audio2._lastVol = Audio2.volume || 0.7;
   Game.init();
   Input.init(canvas);
+  // pixi-рендер мира (WebGL): инициализируем ДО первого кадра
+  const cssW = window.innerWidth, cssH = window.innerHeight;
+  dpr = Math.min(2, window.devicePixelRatio || 1);
+  await PixiRenderer.init(pixiCanvas, cssW, cssH, dpr);
   resize();
   window.addEventListener('resize', resize);
   setupImmersive();

@@ -11,6 +11,11 @@ import { rand, clamp, dist, TAU, weaponDef, fmtTime } from './utils';
    ===================================================================== */
 
 export const UI: any = {
+  // 2D-ОВЕРЛЕЙ (поверх pixi-канваса с миром+тьмой). Рисует только текст/бары/меню;
+  // мир, тьму и глинты рисует PixiRenderer снизу. Холст очищается прозрачно, чтобы
+  // pixi-мир просвечивал; для меню-экранов кладём собственный фон.
+  // Тряска (Game.shakeX/Y) считается здесь через seeded rand (часть детерминизма) —
+  // pixi-рендер мира её ЧИТАЕТ. Поэтому UI.render зовётся ДО PixiRenderer.render().
   render(ctx) {
     const W = Game.viewW, H = Game.viewH;
     // вычислить тряску один раз за кадр
@@ -19,20 +24,13 @@ export const UI: any = {
       Game.shakeY = rand(-Game.shake, Game.shake);
     } else { Game.shakeX = 0; Game.shakeY = 0; }
 
-    ctx.fillStyle = CONFIG.colors.bg;
-    ctx.fillRect(0, 0, W, H);
+    ctx.clearRect(0, 0, W, H);
 
-    if (Game.state === 'menu') { this.drawMenu(ctx); return; }
-    if (Game.state === 'charselect') { this.drawCharSelect(ctx); return; }
-    if (Game.state === 'shop') { this.drawShop(ctx); return; }
+    if (Game.state === 'menu') { this.drawBg(ctx); this.drawMenu(ctx); return; }
+    if (Game.state === 'charselect') { this.drawBg(ctx); this.drawCharSelect(ctx); return; }
+    if (Game.state === 'shop') { this.drawBg(ctx); this.drawShop(ctx); return; }
 
-    this.drawGrid(ctx);
-    this.drawWorld(ctx);
-    this.drawDarkZones(ctx);
-    this.drawDarkness(ctx);
-    this.drawDarkGlints(ctx);
-    this.drawCycleTint(ctx);
-    this.drawVignette(ctx);
+    this.drawWorldUI(ctx);   // числа урона, HP-бары танков/боссов (мировое простр.)
     this.drawHUD(ctx);
     this.drawBanner(ctx);
     if (Game.state === 'playing') this.drawJoystick(ctx);
@@ -41,6 +39,36 @@ export const UI: any = {
     else if (Game.state === 'paused') this.drawPaused(ctx);
     else if (Game.state === 'gameover') this.drawGameOver(ctx);
     else if (Game.state === 'win') this.drawWin(ctx);
+  },
+
+  // непрозрачный фон под меню-экранами (в игре фон даёт pixi-канвас)
+  drawBg(ctx) { ctx.fillStyle = CONFIG.colors.bg; ctx.fillRect(0, 0, Game.viewW, Game.viewH); },
+
+  // 2D-слой над миром: числа урона + HP-бары танков/боссов (текст и тонкие бары
+  // остаются на Canvas2D, чтобы не тащить PIXI.Text; затемнение тьмой для них опущено
+  // — несущественно, они появляются у целей в освещённой зоне боя).
+  drawWorldUI(ctx) {
+    for (const e of Game.enemies.active) {
+      if (e.dead) continue;
+      if (e.isBoss) { this.drawBossBar(ctx, e); continue; }
+      if (e.typeKey === 'tank' && e.hp < e.maxHp) {
+        const X = this.sx(e.x), Y = this.sy(e.y), w = e.radius * 2;
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fillRect(X - w / 2, Y - e.radius - 9, w, 4);
+        ctx.fillStyle = CONFIG.colors.hp;
+        ctx.fillRect(X - w / 2, Y - e.radius - 9, w * (e.hp / e.maxHp), 4);
+      }
+    }
+    ctx.textAlign = 'center';
+    for (const d of Game.dmgNumbers.active) {
+      if (d.dead) continue;
+      const a = clamp(d.life / CONFIG.feel.dmgNumberLife, 0, 1);
+      ctx.globalAlpha = a;
+      ctx.font = (d.crit ? 'bold 22px ' : 'bold 15px ') + 'Consolas, monospace';
+      ctx.fillStyle = d.color;
+      ctx.fillText(d.value, this.sx(d.x), this.sy(d.y));
+      ctx.globalAlpha = 1;
+    }
   },
 
   // координаты мир->экран
