@@ -5,3 +5,5 @@ dist/
 dist-electron/
 release/
 tests/.bundle.cjs
+tests/baseline-canvas2d/
+.playwright-mcp/

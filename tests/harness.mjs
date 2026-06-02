@@ -18,12 +18,6 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 
-// Порядок скриптов как в index.html
-const FILES = [
-  'js/config.js', 'js/utils.js', 'js/audio.js', 'js/input.js', 'js/render.js',
-  'js/entities.js', 'js/weapons.js', 'js/spawner.js', 'js/ui.js', 'js/game.js', 'js/main.js',
-];
-
 const seeds = process.argv.slice(2).map(Number).filter(n => !Number.isNaN(n));
 const SEEDS = seeds.length ? seeds : [42, 7, 1234];
 
@@ -46,7 +40,14 @@ function makeFakeCanvas() {
   return c;
 }
 
-const bundle = FILES.map(f => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n;\n');
+// Грузим предсобранный IIFE-бандл (см. build-test-bundle.mjs). Бандл экспонирует
+// игровые символы на globalThis — драйвер ниже видит их как и раньше.
+const bundlePath = path.join(__dirname, '.bundle.cjs');
+if (!fs.existsSync(bundlePath)) {
+  console.error('Тест-бандл не найден. Собери его: node tests/build-test-bundle.mjs (или запусти `npm test`).');
+  process.exit(1);
+}
+const bundle = fs.readFileSync(bundlePath, 'utf8');
 
 // Драйвер симуляции — добавляется в тот же лексический скоуп, что и игра,
 // поэтому видит Game/CONFIG/Input/UI/RNG/dist2 напрямую.
