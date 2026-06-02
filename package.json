@@ -1,0 +1,20 @@
+{
+  "name": "lumen-survivors",
+  "version": "1.1.0",
+  "description": "LUMEN — Survivors: неоновый survivors-like. Десктопная версия для Steam.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "node tests/build-test-bundle.mjs && node tests/harness.mjs",
+    "test:bundle": "node tests/build-test-bundle.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.0"
+  },
+  "dependencies": {}
+}
