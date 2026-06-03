@@ -2,7 +2,7 @@
   "name": "lumen-survivors",
   "version": "1.3.0",
   "description": "LUMEN — Survivors: неоновый survivors-like. Десктопная версия для Steam.",
-  "author": "dim-s",
+  "author": "Dmitrii Zaitsev",
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "main": "electron/main.cjs",

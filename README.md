@@ -161,7 +161,7 @@ Issues и pull request'ы приветствуются. Любой вклад п
 
 ## Лицензия
 
-© 2026 dim-s. Все права защищены.
+© 2026 Dmitrii Zaitsev. Все права защищены.
 
 Код LUMEN — Survivors **публично доступен для изучения (source-available), но это НЕ
 open source.** Лицензия — [PolyForm Strict 1.0.0](LICENSE): разрешены только просмотр,
