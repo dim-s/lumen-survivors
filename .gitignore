@@ -7,3 +7,7 @@ release/
 tests/.bundle.cjs
 tests/baseline-canvas2d/
 .playwright-mcp/
+
+# внутренние инструкции агентных CLI — не для публичного репо
+CLAUDE.md
+AGENTS.md
