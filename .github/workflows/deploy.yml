@@ -25,7 +25,10 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
+      # npm install, а не ci: package-lock дрейфит на тяжёлом electron-builder-дереве
+      # (скос npm/платформы), но веб-сборке нужны только vite/ts/pixi. install
+      # резолвит рабочее дерево из package.json без строгой сверки лока.
+      - run: npm install --no-audit --no-fund
       - run: npm run build
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
